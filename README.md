@@ -10,6 +10,10 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
   <img src="media/logo.png" width="160" alt="GzLevelUp logo">
 </p>
 
+<p align="center">
+  <a href="https://www.curseforge.com/wow/addons/gzlevelup">Download on CurseForge</a>
+</p>
+
 ---
 
 ## Features
@@ -32,7 +36,29 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" valign="top">
+      <img src="media/example_main_panel.jpg" width="320" alt="GzLevelUp configuration window"><br>
+      <sub>In-game config window (<code>/gz</code>)</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="media/example_quick_panel.jpg" width="200" alt="GzLevelUp quick-buttons panel"><br>
+      <sub>Movable quick-buttons panel (gz / ty)</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## Installation
+
+### CurseForge (recommended)
+Install and auto-update via the
+[CurseForge app](https://www.curseforge.com/wow/addons/gzlevelup) — search for
+**GzLevelUp** or use the app's install button on the addon page.
 
 ### Manual
 1. Download the latest release.

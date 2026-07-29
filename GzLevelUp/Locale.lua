@@ -1,14 +1,14 @@
 local ADDON, ns = ...
 
--- Lokalisierung: Englisch ist die Standardsprache (Fallback fuer alle Keys).
--- Weitere Sprachen ueberschreiben nur die Keys, die sie brauchen.
--- Fehlt ein Key komplett, liefert die Metatable den Key-Namen zurueck,
--- damit es nie einen nil-Fehler gibt.
+-- Localization: English is the default language (fallback for all keys).
+-- Other languages only override the keys they actually need.
+-- If a key is missing entirely, the metatable returns the key name itself,
+-- so there is never a nil error.
 local L = setmetatable({}, { __index = function(_, key) return key end })
 ns.L = L
 
 -- ---------------------------------------------------------------------------
--- enUS (Standard)
+-- enUS (default)
 -- ---------------------------------------------------------------------------
 L.DEFAULT_MESSAGE      = "Gz {name}!"
 L.DEFAULT_SELF_MESSAGE = "Ding! Level {level}"
@@ -60,7 +60,7 @@ L.HELP_SELF            = "  /gz self         - also announce your own level-up (
 L.HELP_TEST            = "  /gz test         - show current messages as preview"
 
 -- ---------------------------------------------------------------------------
--- deDE (Deutsch)
+-- deDE (German)
 -- ---------------------------------------------------------------------------
 if GetLocale() == "deDE" then
     L.DEFAULT_MESSAGE      = "Gz {name}!"

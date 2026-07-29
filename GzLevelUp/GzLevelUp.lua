@@ -1,21 +1,21 @@
 local ADDON, ns = ...
 local L = ns.L
 
--- Wird aus den SavedVariables wiederhergestellt (oder beim ersten Start leer angelegt).
+-- Restored from SavedVariables (or created empty on first launch).
 GzLevelUpDB = GzLevelUpDB or {}
 
 local defaults = {
     enabled      = true,
-    includeSelf  = false,                    -- eigenen Aufstieg auch ankuendigen?
-    message      = L.DEFAULT_MESSAGE,        -- Nachricht fuer Gruppenmitglieder
-    selfMessage  = L.DEFAULT_SELF_MESSAGE,   -- Nachricht fuer eigenen Aufstieg
-    delayEnabled = false,                    -- Verzoegerung vor dem Senden?
-    delaySeconds = 3,                        -- Sekunden Verzoegerung
-    quickPanelEnabled = false,               -- schwebendes gz/ty-Panel anzeigen?
-    quickPanelScale   = 1.0,                 -- Skalierung des Panels (0.5 - 2.0)
-    gzButtonMessage   = "gz",                -- Text des linken Buttons
-    tyButtonMessage   = "ty",                -- Text des rechten Buttons
-    -- quickPanelPos wird beim Verschieben gespeichert (nicht in defaults).
+    includeSelf  = false,                    -- also announce my own level-up?
+    message      = L.DEFAULT_MESSAGE,        -- message for group members
+    selfMessage  = L.DEFAULT_SELF_MESSAGE,   -- message for own level-up
+    delayEnabled = false,                    -- delay before sending?
+    delaySeconds = 3,                        -- delay in seconds
+    quickPanelEnabled = false,               -- show floating gz/ty panel?
+    quickPanelScale   = 1.0,                 -- panel scale (0.5 - 2.0)
+    gzButtonMessage   = "gz",                -- text of the left button
+    tyButtonMessage   = "ty",                -- text of the right button
+    -- quickPanelPos is saved when the panel is moved (not in defaults).
 }
 
 local MAX_DELAY = 60
@@ -35,8 +35,8 @@ local function ClampScale(n)
     return n
 end
 
--- GUID -> zuletzt bekannter Level. Ueber GUID statt Unit-Token, damit
--- "party1" spaeter nicht faelschlich einem anderen Spieler zugeordnet wird.
+-- GUID -> last known level. Keyed by GUID instead of a unit token so that
+-- "party1" isn't later mistakenly attributed to a different player.
 local knownLevels = {}
 
 local PREFIX = "|cff33ff99GzLevelUp|r: "
@@ -49,7 +49,7 @@ local function ApplyDefaults()
     end
 end
 
--- {name}/{level} in einer Vorlage ersetzen.
+-- Replace {name}/{level} in a template.
 local function Format(template, name, level)
     return (template or "")
         :gsub("{name}", name or "?")
@@ -57,10 +57,10 @@ local function Format(template, name, level)
 end
 
 -- ---------------------------------------------------------------------------
--- Kernlogik: Aufstieg erkennen und "gz" senden
+-- Core logic: detect a level-up and send "gz"
 -- ---------------------------------------------------------------------------
 
--- Nur echte Gruppen-Token beruecksichtigen (kein target/mouseover/etc.).
+-- Only consider real group tokens (no target/mouseover/etc.).
 local function IsGroupUnit(unit)
     if unit == "player" then
         return GzLevelUpDB.includeSelf == true
@@ -77,7 +77,7 @@ local function RecordLevel(unit)
     end
 end
 
--- Aktuelle Level aller Mitglieder still einlesen (kein "gz" beim Beitreten).
+-- Silently read every member's current level (no "gz" on join).
 local function SyncGroup()
     RecordLevel("player")
     if IsInRaid() then
@@ -87,9 +87,9 @@ local function SyncGroup()
     end
 end
 
--- Sendet die (bereits fertig formatierte) Nachricht in den Gruppen-/Raidchat.
--- Kanal und Bedingungen werden erst beim tatsaechlichen Senden geprueft,
--- da sich die Gruppe waehrend einer Verzoegerung geaendert haben kann.
+-- Sends the (already formatted) message to party/raid chat.
+-- Channel and conditions are only checked at the actual moment of sending,
+-- since the group may have changed during a delay.
 local function SendNow(msg)
     if not GzLevelUpDB.enabled then return end
     if not IsInGroup() then return end
@@ -100,9 +100,9 @@ end
 local function Announce(unit)
     if not GzLevelUpDB.enabled then return end
     if not IsInGroup() then return end
-    -- Eigener Aufstieg nutzt die separate Nachricht.
+    -- Own level-up uses the separate message.
     local template = (unit == "player") and GzLevelUpDB.selfMessage or GzLevelUpDB.message
-    -- Name/Level werden JETZT eingesetzt (Zeitpunkt des Aufstiegs).
+    -- Name/level are substituted NOW (at the moment of the level-up).
     local msg = Format(template, UnitName(unit), UnitLevel(unit))
 
     local delay = GzLevelUpDB.delayEnabled and ClampDelay(GzLevelUpDB.delaySeconds) or 0
@@ -128,11 +128,11 @@ local function OnUnitLevel(unit)
 end
 
 -- ---------------------------------------------------------------------------
--- Schwebendes Schnell-Buttons-Panel (gz / ty)
+-- Floating quick-buttons panel (gz / ty)
 -- ---------------------------------------------------------------------------
 local quickPanel
 
--- Manuelles Senden per Button: nutzt dieselbe Kanal-Logik wie der Auto-Modus.
+-- Manual send via button: uses the same channel logic as auto mode.
 local function ManualSend(text)
     if not text or text == "" then return end
     if IsInGroup() then
@@ -186,7 +186,7 @@ local function CreateQuickPanel()
     end)
     p:Hide()
 
-    -- Titelleiste dient als Ziehgriff.
+    -- Title bar acts as the drag handle.
     local handle = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     handle:SetPoint("TOP", 0, -8)
     handle:SetText("GzLevelUp")
@@ -238,11 +238,11 @@ f:SetScript("OnEvent", function(self, event, arg1)
 end)
 
 -- ---------------------------------------------------------------------------
--- Konfigurationsfenster
+-- Configuration window
 -- ---------------------------------------------------------------------------
 local configFrame
 
--- Kleiner Helfer: beschriftete Checkbox.
+-- Small helper: labeled checkbox.
 local function CreateCheck(parent, label)
     local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     cb:SetSize(26, 26)
@@ -252,7 +252,7 @@ local function CreateCheck(parent, label)
     return cb
 end
 
--- Kleiner Helfer: Beschriftung + Eingabefeld + Vorschauzeile als Block.
+-- Small helper: label + input field + preview line as a block.
 local function CreateMessageBlock(parent, labelText, x, y)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", x, y)
@@ -291,7 +291,7 @@ local function BuildConfig()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:Hide()
-    tinsert(UISpecialFrames, "GzLevelUpConfigFrame") -- schliesst mit ESC
+    tinsert(UISpecialFrames, "GzLevelUpConfigFrame") -- closes with ESC
 
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -6, -6)
@@ -305,19 +305,19 @@ local function BuildConfig()
     desc:SetWidth(370)
     desc:SetText(L.CONFIG_DESC)
 
-    -- Block 1: Nachricht fuer Gruppenmitglieder ------------------------------
+    -- Block 1: message for group members ----------------------------------
     local groupLabel, groupEdit, groupPreview =
         CreateMessageBlock(frame, L.MESSAGE_LABEL, 30, -70)
 
-    -- Checkbox: eigenen Aufstieg ankuendigen ---------------------------------
+    -- Checkbox: announce own level-up -------------------------------------
     local selfCB = CreateCheck(frame, L.OPT_INCLUDE_SELF)
     selfCB:SetPoint("TOPLEFT", 30, -148)
 
-    -- Block 2: Nachricht fuer eigenen Aufstieg -------------------------------
+    -- Block 2: message for own level-up -----------------------------------
     local selfLabel, selfEdit, selfPreview =
         CreateMessageBlock(frame, L.SELF_MESSAGE_LABEL, 30, -180)
 
-    -- Aktiviert/deaktiviert das Feld fuer die eigene Nachricht.
+    -- Enables/disables the field for the own message.
     local function SetSelfEnabled(on)
         selfEdit:EnableMouse(on)
         if on then
@@ -337,14 +337,14 @@ local function BuildConfig()
         SetSelfEnabled(GzLevelUpDB.includeSelf)
     end)
 
-    -- Checkbox: Addon aktiviert ----------------------------------------------
+    -- Checkbox: addon enabled ---------------------------------------------
     local enabledCB = CreateCheck(frame, L.OPT_ENABLED)
     enabledCB:SetPoint("TOPLEFT", 30, -258)
     enabledCB:SetScript("OnClick", function(self)
         GzLevelUpDB.enabled = self:GetChecked() and true or false
     end)
 
-    -- Verzoegerung (opt-in) + Sekundenfeld -----------------------------------
+    -- Delay (opt-in) + seconds field --------------------------------------
     local delayCB = CreateCheck(frame, L.OPT_DELAY)
     delayCB:SetPoint("TOPLEFT", 30, -288)
 
@@ -375,7 +375,7 @@ local function BuildConfig()
         SetDelayEnabled(GzLevelUpDB.delayEnabled)
     end)
 
-    -- Schnell-Buttons-Panel (opt-in) + Button-Texte --------------------------
+    -- Quick-buttons panel (opt-in) + button texts -------------------------
     local quickCB = CreateCheck(frame, L.OPT_QUICKPANEL)
     quickCB:SetPoint("TOPLEFT", 30, -352)
     quickCB:SetScript("OnClick", function(self)
@@ -403,7 +403,7 @@ local function BuildConfig()
     tyEdit:SetAutoFocus(false)
     tyEdit:SetMaxLetters(40)
 
-    -- Button-Beschriftung im Panel live aktualisieren.
+    -- Live-update the button labels in the panel.
     gzEdit:SetScript("OnTextChanged", function(self)
         if quickPanel then quickPanel.gzBtn:SetText(self:GetText()) end
     end)
@@ -411,7 +411,7 @@ local function BuildConfig()
         if quickPanel then quickPanel.tyBtn:SetText(self:GetText()) end
     end)
 
-    -- Groessen-Regler fuer das Panel -----------------------------------------
+    -- Size slider for the panel -------------------------------------------
     local scaleSlider = CreateFrame("Slider", "GzLevelUpScaleSlider", frame, "OptionsSliderTemplate")
     scaleSlider:SetWidth(340)
     scaleSlider:SetPoint("TOP", 0, -448)
@@ -434,7 +434,7 @@ local function BuildConfig()
         end
     end)
 
-    -- Live-Vorschau fuer beide Nachrichten -----------------------------------
+    -- Live preview for both messages --------------------------------------
     local function UpdatePreview()
         local name  = UnitName("player") or L.PLAYER
         local level = (UnitLevel("player") or 1) + 1
@@ -442,7 +442,7 @@ local function BuildConfig()
         selfPreview:SetText(L.PREVIEW_LABEL .. " \"" .. Format(selfEdit:GetText(), name, level) .. "\"")
     end
 
-    -- Speichern aller Einstellungen ------------------------------------------
+    -- Save all settings ---------------------------------------------------
     local function Commit()
         GzLevelUpDB.message         = groupEdit:GetText()
         GzLevelUpDB.selfMessage     = selfEdit:GetText()
@@ -495,7 +495,7 @@ local function BuildConfig()
     closeBtn:SetText(L.BTN_CLOSE)
     closeBtn:SetScript("OnClick", function() frame:Hide() end)
 
-    -- Beim Oeffnen aktuelle Werte laden.
+    -- Load the current values when opening.
     frame:SetScript("OnShow", function()
         groupEdit:SetText(GzLevelUpDB.message)
         groupEdit:SetCursorPosition(0)
@@ -517,7 +517,7 @@ local function BuildConfig()
         UpdatePreview()
     end)
 
-    -- Beim Schliessen ohne Speichern die Panel-Beschriftung zuruecksetzen.
+    -- Reset the panel labels when closing without saving.
     frame:SetScript("OnHide", RefreshQuickButtons)
 
     configFrame = frame
@@ -534,7 +534,7 @@ local function ToggleConfig()
 end
 
 -- ---------------------------------------------------------------------------
--- Slash-Befehle: /gz
+-- Slash commands: /gz
 -- ---------------------------------------------------------------------------
 local function StateText(v)
     return v and L.STATE_ON or L.STATE_OFF
@@ -590,7 +590,7 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "scale" then
         local n = tonumber(rest)
         if n then
-            if n > 5 then n = n / 100 end -- Prozentangabe wie 120 zulassen
+            if n > 5 then n = n / 100 end -- allow a percentage like 120
             n = ClampScale(n)
             GzLevelUpDB.quickPanelScale = n
             if quickPanel then quickPanel:SetScale(n) end
