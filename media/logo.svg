@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Hintergrund -->
+  <rect x="0" y="0" width="512" height="512" rx="104" ry="104" fill="#12303a"/>
+  <rect x="16" y="16" width="480" height="480" rx="90" ry="90" fill="none" stroke="#1d4a58" stroke-width="10"/>
+
+  <!-- Level-Up-Pfeil (Chevrons) -->
+  <g fill="none" stroke="#f2c14e" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="196,140 256,88 316,140"/>
+    <polyline points="196,202 256,150 316,202"/>
+  </g>
+
+  <!-- Chat-Blase -->
+  <g>
+    <rect x="104" y="244" width="304" height="192" rx="46" ry="46" fill="#ffffff"/>
+    <polygon points="160,430 160,478 208,430" fill="#ffffff"/>
+  </g>
+
+  <!-- Text "gz" -->
+  <text x="256" y="332" text-anchor="middle" dominant-baseline="central"
+        font-family="DejaVu Sans, Verdana, sans-serif" font-weight="bold"
+        font-size="132" fill="#1aa053">gz</text>
+</svg>
