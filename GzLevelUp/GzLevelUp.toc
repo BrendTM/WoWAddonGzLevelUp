@@ -4,6 +4,7 @@
 ## Notes-deDE: Schreibt automatisch "gz" in den Gruppen-/Raidchat, wenn ein Gruppenmitglied aufsteigt.
 ## Author: BrendTM
 ## Version: 1.0
+## IconTexture: Interface\AddOns\GzLevelUp\icon
 ## SavedVariables: GzLevelUpDB
 ## X-Website: https://github.com/BrendTM/WoWAddonGzLevelUp
 ## X-CurseForge: https://www.curseforge.com/wow/addons/gzlevelup
