@@ -144,7 +144,8 @@ block.
 ├── GzLevelUp/            # the addon itself (install-ready)
 │   ├── GzLevelUp.toc
 │   ├── Locale.lua        # localization (enUS + deDE)
-│   └── GzLevelUp.lua     # core logic + config UI + quick panel
+│   ├── GzLevelUp.lua     # core logic + config UI + quick panel
+│   └── icon.tga          # icon for the in-game addon list
 ├── tests/                # test suite (not shipped with the addon)
 │   ├── harness.lua       # stubbed WoW API
 │   └── run.lua           # the tests
@@ -180,8 +181,18 @@ Zip the `GzLevelUp/` folder so it unpacks as `GzLevelUp/…`:
 zip -r GzLevelUp.zip GzLevelUp
 ```
 
-The `media/`, `CURSEFORGE.md`, and repository metadata are intentionally left
-out of the addon package.
+The `media/`, `tests/`, `CURSEFORGE.md`, and repository metadata are
+intentionally left out of the addon package.
+
+`GzLevelUp/icon.tga` is generated from `media/logo.png` and shows up next to the
+addon in the in-game addon list. WoW reads only BLP and TGA — not PNG — so it
+has to be a 64×64 uncompressed 32-bit TGA:
+
+```bash
+python3 -c "from PIL import Image; \
+Image.open('media/logo.png').convert('RGBA').resize((64,64), Image.LANCZOS) \
+.save('GzLevelUp/icon.tga', compression=None)"
+```
 
 ---
 

@@ -261,5 +261,23 @@ check("github link is a url",
       (meta("GzLevelUp", "X-Website") or ""):match("^https://") ~= nil, true)
 check("saved variables declared", meta("GzLevelUp", "SavedVariables"), "GzLevelUpDB")
 
+section("addon list icon")
+local iconPath = meta("GzLevelUp", "IconTexture")
+check("IconTexture declared", iconPath, [[Interface\AddOns\GzLevelUp\icon]])
+-- WoW resolves the texture without an extension; the file itself must exist.
+local tga = io.open(here .. "/../GzLevelUp/icon.tga", "rb")
+check("icon.tga present", tga ~= nil, true)
+if tga then
+    local head = tga:read(18)
+    tga:close()
+    local byte = string.byte
+    -- 64x64, uncompressed true-color, 32bpp: what the texture loader accepts.
+    check("uncompressed true-color", byte(head, 3), 2)
+    check("no colour map", byte(head, 2), 0)
+    check("width 64", byte(head, 13) + byte(head, 14) * 256, 64)
+    check("height 64", byte(head, 15) + byte(head, 16) * 256, 64)
+    check("32 bit with alpha", byte(head, 17), 32)
+end
+
 print(string.format("\n%d checks, %d failed", total, fails))
 os.exit(fails == 0 and 0 or 1)
