@@ -1,5 +1,6 @@
 # Build artifacts
 *.zip
+RELEASE_NOTES.md
 
 # OS / editor cruft
 .DS_Store

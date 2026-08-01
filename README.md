@@ -169,6 +169,10 @@ block.
 ├── tests/                # test suite (not shipped with the addon)
 │   ├── harness.lua       # stubbed WoW API
 │   └── run.lua           # the tests
+├── ci/                   # release tooling
+│   ├── build_package.py  # stamps the version and builds the zip
+│   └── release_notes.py  # pulls the release body from CHANGELOG.md
+├── CHANGELOG.md          # per-release notes
 ├── media/                # logo assets (not shipped with the addon)
 ├── CURSEFORGE.md         # CurseForge project description
 ├── LICENSE
@@ -190,6 +194,24 @@ lua5.1 tests/run.lua
 WoW Classic embeds Lua 5.1, so that is the version CI runs. Any Lua ≥ 5.1 works
 locally. The suite exits non-zero on failure and gates both the `test` workflow
 (every push) and the `release` workflow (tags).
+
+---
+
+## Releasing
+
+1. Add a `## <version>` section to [CHANGELOG.md](CHANGELOG.md) describing the
+   release. The test suite fails if the version in the `.toc` has no section.
+2. Bump `## Version:` in `GzLevelUp/GzLevelUp.toc` and commit.
+3. Tag and push:
+
+   ```bash
+   git tag 1.2 && git push origin 1.2
+   ```
+
+The workflow then runs the test suite, stamps the version into the `.toc`,
+builds `GzLevelUp-<version>.zip` and publishes a GitHub release using the
+changelog section as its body. The same section can be pasted straight into the
+CurseForge changelog field.
 
 ---
 

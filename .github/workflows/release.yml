@@ -9,7 +9,8 @@
 # too (v1.1). The tag name is written into the addon's .toc (## Version:) and
 # used to name the zip: GzLevelUp-1.1.zip
 #
-# The test suite runs first; a failing tag produces no release.
+# The test suite runs first; a failing tag produces no release. The release
+# body is taken from the matching CHANGELOG.md section.
 #
 # Outputs:
 #   * a GitHub Release for the tag with the zip attached as an asset
@@ -62,10 +63,20 @@ jobs:
           echo "Packaging ${ADDON_NAME} ${VERSION}"
           python3 ci/build_package.py
 
+      # Uses the CHANGELOG.md section for this version as the release body.
+      # A missing section exits 1 but still prints a fallback line, and that
+      # must not fail the release — hence the "|| true".
+      - name: Build release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 ci/release_notes.py "$VERSION" > RELEASE_NOTES.md || true
+          cat RELEASE_NOTES.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ env.ADDON_NAME }} ${{ steps.version.outputs.version }}
           tag_name: ${{ github.ref_name }}
-          body: Automated release of ${{ env.ADDON_NAME }} ${{ steps.version.outputs.version }}.
+          body_path: RELEASE_NOTES.md
           files: ${{ env.ADDON_NAME }}-${{ steps.version.outputs.version }}.zip
