@@ -272,6 +272,20 @@ GzLevelUpDB.minimapAngle = 42
 fire("ADDON_LOADED", "GzLevelUp")
 check("a moved button keeps its angle", GzLevelUpDB.minimapAngle, 42)
 
+section("changelog")
+-- A version bump without a changelog entry would ship a release whose notes
+-- fall back to a single generic line, so tie the two together here.
+local version = meta("GzLevelUp", "Version")
+local changelog = io.open(here .. "/../CHANGELOG.md")
+check("CHANGELOG.md present", changelog ~= nil, true)
+if changelog then
+    local text = changelog:read("*a")
+    changelog:close()
+    local heading = "## " .. version
+    check("has a section for the current version",
+          text:find(heading, 1, true) ~= nil, true)
+end
+
 section("addon list icon")
 local iconPath = meta("GzLevelUp", "IconTexture")
 check("IconTexture declared", iconPath, [[Interface\AddOns\GzLevelUp\icon]])
