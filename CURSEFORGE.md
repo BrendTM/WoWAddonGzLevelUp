@@ -31,6 +31,8 @@ Lightweight, fully configurable, and built for WoW Classic / Anniversary realms.
   it can be resized from 50% to 200%.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
+- **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
+  for the settings, right-click for the quick panel.
 - **In-game config window** — set everything up with `/gz`, including a live
   preview of your messages. Everything saves itself.
 - **Localization** — English by default, with German included automatically on
@@ -93,6 +95,8 @@ Nothing is sent.
 - **Also use raid chat** — off by default. In a 40-man raid an automatic "gz"
   per level-up is spam for most people, so the addon stays silent in raids
   until you switch this on. Applies to everything it sends.
+- **Show minimap button** — opt-in. Left-click opens the settings, right-click
+  toggles the quick panel, and you can drag it around the minimap.
 - **Restore defaults** — resets everything, after a confirmation prompt.
 
 **Info**

@@ -36,6 +36,8 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
   "gz" and then thank them all in a single "ty", naming everyone.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
+- **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
+  opens the settings, right-click toggles the quick panel.
 - **In-game config window** (`/gz`) — five tabs, live preview, auto-save, and it
   remembers where you dragged it.
 - **Localization** — English by default, German included automatically on
@@ -104,6 +106,7 @@ box with sensible defaults.
 | `/gz delay <sec>` | Set the delay for all three categories (`0` = immediately) |
 | `/gz delay <group\|self\|pets> <sec>` | Set the delay for one category |
 | `/gz panel` | Toggle the floating quick-buttons panel |
+| `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
 | `/gz test` | Preview your current messages (nothing is sent) |
 

@@ -261,6 +261,17 @@ check("github link is a url",
       (meta("GzLevelUp", "X-Website") or ""):match("^https://") ~= nil, true)
 check("saved variables declared", meta("GzLevelUp", "SavedVariables"), "GzLevelUpDB")
 
+section("minimap button")
+check("off by default", GzLevelUpDB.minimapEnabled, false)
+check("has a default angle", type(GzLevelUpDB.minimapAngle), "number")
+slash("minimap")
+check("toggles on", GzLevelUpDB.minimapEnabled, true)
+slash("minimap")
+check("toggles back off", GzLevelUpDB.minimapEnabled, false)
+GzLevelUpDB.minimapAngle = 42
+fire("ADDON_LOADED", "GzLevelUp")
+check("a moved button keeps its angle", GzLevelUpDB.minimapAngle, 42)
+
 section("addon list icon")
 local iconPath = meta("GzLevelUp", "IconTexture")
 check("IconTexture declared", iconPath, [[Interface\AddOns\GzLevelUp\icon]])

@@ -49,6 +49,12 @@ function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function StaticPopup_Show() end
 
 UIParent, StaticPopupDialogs, SlashCmdList = {}, {}, {}
+-- The minimap button anchors to this and reads the cursor while dragging.
+Minimap = setmetatable({
+    GetCenter = function() return 100, 100 end,
+    GetEffectiveScale = function() return 1 end,
+}, { __index = function() return function() end end })
+function GetCursorPosition() return 100, 100 end
 YES, NO = "Yes", "No"
 GameTooltip = setmetatable({}, { __index = function() return function() end end })
 
@@ -56,17 +62,24 @@ C_Timer = {
     After = function(sec, fn) timers[#timers + 1] = { sec = sec, fn = fn } end,
 }
 
--- Frames are inert: every method is a no-op, except SetScript("OnEvent"),
--- which is captured so tests can deliver events. The config window is only
--- built on /gz, so the stub does not need to be more capable than this.
-function CreateFrame()
-    local f = {}
-    f.RegisterEvent = function() end
-    f.SetScript = function(_, script, fn)
-        if script == "OnEvent" then handler = fn end
-    end
-    return setmetatable(f, { __index = function() return function() end end })
+-- Frames are inert: every method is a no-op that hands back another stub, so
+-- chains like button:CreateTexture():SetTexture() keep working. The one
+-- exception is SetScript("OnEvent"), which is captured so tests can deliver
+-- events.
+local function frameStub()
+    return setmetatable({}, {
+        __index = function(_, key)
+            if key == "SetScript" then
+                return function(_, script, fn)
+                    if script == "OnEvent" then handler = fn end
+                end
+            end
+            return function() return frameStub() end
+        end,
+    })
 end
+
+function CreateFrame() return frameStub() end
 
 -- --- Test controls ---------------------------------------------------------
 
