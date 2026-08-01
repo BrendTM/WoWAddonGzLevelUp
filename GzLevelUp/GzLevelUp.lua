@@ -466,7 +466,9 @@ local function CreateMinimapButton()
     local icon = b:CreateTexture(nil, "BACKGROUND")
     icon:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\icon")
     icon:SetSize(20, 20)
-    icon:SetPoint("CENTER", -1, 1)
+    -- Horizontally centred; the ring in MiniMap-TrackingBorder sits one pixel
+    -- low, so the icon is nudged up to match (same offset LibDBIcon uses).
+    icon:SetPoint("CENTER", 0, 1)
     -- Trim the logo's rounded corners so it sits better inside the round ring.
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
