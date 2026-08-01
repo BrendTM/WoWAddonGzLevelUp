@@ -48,18 +48,35 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
 
 ## Screenshots
 
+The config window (<code>/gz</code>) is split across five tabs:
+
 <table>
   <tr>
-    <td align="center" valign="top">
-      <img src="media/example_main_panel.jpg" width="320" alt="GzLevelUp configuration window"><br>
-      <sub>In-game config window (<code>/gz</code>)</sub>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_messages_panel.jpg" width="380" alt="Messages tab"><br>
+      <sub><b>Messages</b> — a switch, a message and a delay per category</sub>
     </td>
-    <td align="center" valign="top">
-      <img src="media/example_quick_panel.jpg" width="200" alt="GzLevelUp quick-buttons panel"><br>
-      <sub>Movable quick-buttons panel (gz / ty)</sub>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_auto_reply_panel.jpg" width="380" alt="Auto reply tab"><br>
+      <sub><b>Auto reply</b> — thank everyone who congratulated you, in one message</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
+      <sub><b>Quick panel</b> — button texts and panel size</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
+      <sub><b>Settings</b> — master switch, raid chat and minimap button</sub>
     </td>
   </tr>
 </table>
+
+<p align="center">
+  <img src="media/example_quick_panel.jpg" width="200" alt="GzLevelUp quick-buttons panel"><br>
+  <sub>The movable quick-buttons panel (gz / ty)</sub>
+</p>
 
 ---
 
