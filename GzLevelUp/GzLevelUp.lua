@@ -5,17 +5,48 @@ local L = ns.L
 GzLevelUpDB = GzLevelUpDB or {}
 
 local defaults = {
-    enabled      = true,
-    includeSelf  = false,                    -- also announce my own level-up?
-    message      = L.DEFAULT_MESSAGE,        -- message for group members
-    selfMessage  = L.DEFAULT_SELF_MESSAGE,   -- message for own level-up
-    delayEnabled = false,                    -- delay before sending?
-    delaySeconds = 3,                        -- delay in seconds
+    enabled       = true,
+    useRaidChat   = false,                    -- stay quiet in raids unless asked
+    -- One switch, one message and one delay per announcement category.
+    announceGroup = true,                     -- announce group members?
+    includeSelf   = false,                    -- also announce my own level-up?
+    includePets   = false,                    -- also announce pets/companions?
+    message       = L.DEFAULT_MESSAGE,        -- message for group members
+    selfMessage   = L.DEFAULT_SELF_MESSAGE,   -- message for own level-up
+    petMessage    = L.DEFAULT_PET_MESSAGE,    -- message for a pet's level-up
+    groupDelay    = 0,                        -- seconds before sending, 0 = now
+    selfDelay     = 0,
+    petDelay      = 0,
     quickPanelEnabled = false,               -- show floating gz/ty panel?
     quickPanelScale   = 1.0,                 -- panel scale (0.5 - 2.0)
     gzButtonMessage   = "gz",                -- text of the left button
     tyButtonMessage   = "ty",                -- text of the right button
-    -- quickPanelPos is saved when the panel is moved (not in defaults).
+    -- Auto reply: say "ty" once after people congratulated my own level-up.
+    autoReplyEnabled  = false,
+    replyMessage      = L.DEFAULT_REPLY,
+    replyTriggers     = L.DEFAULT_TRIGGERS,  -- comma separated words
+    replyCollect      = 6,                   -- keep collecting after the 1st gz
+    replyWindow       = 30,                  -- give up listening after this
+    -- quickPanelPos / configPos are saved when a window is moved
+    -- (deliberately not in defaults: "no entry" means "centered").
+}
+
+-- Everything that differs between the three announcement categories, in one
+-- place: which DB keys hold its switch, its message template and its delay.
+local CATEGORY = {
+    member = { enabled = "announceGroup", message = "message",     delay = "groupDelay" },
+    self   = { enabled = "includeSelf",   message = "selfMessage", delay = "selfDelay"  },
+    pet    = { enabled = "includePets",   message = "petMessage",  delay = "petDelay"   },
+}
+
+-- Display order of the categories wherever all three are listed.
+local CATEGORY_ORDER = { "member", "self", "pet" }
+
+-- What the user may type after "/gz delay" to address a single category.
+local DELAY_ALIAS = {
+    group = "member", member = "member",
+    self  = "self",
+    pets  = "pet",    pet    = "pet",
 }
 
 local MAX_DELAY = 60
@@ -41,7 +72,21 @@ local knownLevels = {}
 
 local PREFIX = "|cff33ff99GzLevelUp|r: "
 
+-- The single global delay (delayEnabled + delaySeconds) became one delay per
+-- category. Carry the old value over to all three, then drop the old keys.
+local function Migrate()
+    if GzLevelUpDB.delaySeconds == nil and GzLevelUpDB.delayEnabled == nil then return end
+    local old = GzLevelUpDB.delayEnabled and ClampDelay(GzLevelUpDB.delaySeconds) or 0
+    for _, kind in ipairs(CATEGORY_ORDER) do
+        local key = CATEGORY[kind].delay
+        if GzLevelUpDB[key] == nil then GzLevelUpDB[key] = old end
+    end
+    GzLevelUpDB.delayEnabled = nil
+    GzLevelUpDB.delaySeconds = nil
+end
+
 local function ApplyDefaults()
+    Migrate()
     for k, v in pairs(defaults) do
         if GzLevelUpDB[k] == nil then
             GzLevelUpDB[k] = v
@@ -49,27 +94,72 @@ local function ApplyDefaults()
     end
 end
 
--- Replace {name}/{level} in a template.
-local function Format(template, name, level)
+-- Replace {name}/{level}/{owner} in a template.
+local function Format(template, name, level, owner)
     return (template or "")
         :gsub("{name}", name or "?")
         :gsub("{level}", tostring(level or 0))
+        :gsub("{owner}", owner or "?")
+end
+
+-- Remembers where the user dragged a frame to, under the given DB key.
+-- Anchoring is always relative to UIParent so the value survives a reload.
+local function SavePos(frame, key)
+    local point, _, relPoint, x, y = frame:GetPoint()
+    GzLevelUpDB[key] = { point = point, relPoint = relPoint, x = x, y = y }
+end
+
+-- Counterpart to SavePos; centers the frame if there is nothing stored yet.
+local function RestorePos(frame, key)
+    local pos = GzLevelUpDB[key]
+    frame:ClearAllPoints()
+    if pos and pos.point then
+        frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    else
+        frame:SetPoint("CENTER")
+    end
 end
 
 -- ---------------------------------------------------------------------------
 -- Core logic: detect a level-up and send "gz"
 -- ---------------------------------------------------------------------------
 
--- Only consider real group tokens (no target/mouseover/etc.).
-local function IsGroupUnit(unit)
-    if unit == "player" then
-        return GzLevelUpDB.includeSelf == true
-    end
-    return (unit:match("^party[1-4]$") or unit:match("^raid%d+$")) ~= nil
+-- Maps a unit token to its category — anything else (target, mouseover, ...)
+-- yields nil. Ignores the on/off switches, so it also answers "is this unit
+-- worth tracking at all?".
+local function UnitCategory(unit)
+    if unit == "player" then return "self" end
+    if unit == "pet" then return "pet" end
+    if unit:match("^party[1-4]$") or unit:match("^raid%d+$") then return "member" end
+    if unit:match("^partypet[1-4]$") or unit:match("^raidpet%d+$") then return "pet" end
+    return nil
+end
+
+-- Applies the switches on top: returns the category only if it may announce.
+local function ClassifyUnit(unit)
+    local kind = UnitCategory(unit)
+    if not kind then return nil end
+    -- My own pet additionally follows the "my own level-ups" switch.
+    if unit == "pet" and not GzLevelUpDB.includeSelf then return nil end
+    return GzLevelUpDB[CATEGORY[kind].enabled] and kind or nil
+end
+
+-- "partypet2" -> "party2", "raidpet7" -> "raid7", "pet" -> "player".
+local function OwnerOf(petUnit)
+    if petUnit == "pet" then return "player" end
+    return (petUnit:gsub("pet", "", 1))
+end
+
+-- "party2" -> "partypet2", "raid7" -> "raidpet7", "player" -> "pet".
+local function PetOf(ownerUnit)
+    if ownerUnit == "player" then return "pet" end
+    local prefix, index = ownerUnit:match("^(party)([1-4])$")
+    if not prefix then prefix, index = ownerUnit:match("^(raid)(%d+)$") end
+    return prefix and (prefix .. "pet" .. index) or nil
 end
 
 local function RecordLevel(unit)
-    if not UnitExists(unit) then return end
+    if not unit or not UnitExists(unit) then return end
     local guid = UnitGUID(unit)
     local lvl  = UnitLevel(unit)
     if guid and lvl and lvl > 0 then
@@ -77,14 +167,34 @@ local function RecordLevel(unit)
     end
 end
 
--- Silently read every member's current level (no "gz" on join).
+-- Silently read every member's (and pet's) current level, so joining a group
+-- or summoning a pet never produces a "gz". Pets are recorded even when the
+-- option is off; that way turning it on later can't misfire on a stale level.
 local function SyncGroup()
     RecordLevel("player")
+    RecordLevel("pet")
     if IsInRaid() then
-        for i = 1, 40 do RecordLevel("raid" .. i) end
+        for i = 1, 40 do
+            RecordLevel("raid" .. i)
+            RecordLevel("raidpet" .. i)
+        end
     elseif IsInGroup() then
-        for i = 1, 4 do RecordLevel("party" .. i) end
+        for i = 1, 4 do
+            RecordLevel("party" .. i)
+            RecordLevel("partypet" .. i)
+        end
     end
+end
+
+-- The chat channel the addon may use right now, or nil to stay quiet.
+-- Raids are opt-in: in a 40-man raid an automatic "gz" per level-up is spam
+-- for most people, so the addon says nothing there unless useRaidChat is set.
+local function GroupChannel()
+    if IsInRaid() then
+        return GzLevelUpDB.useRaidChat and "RAID" or nil
+    end
+    if IsInGroup() then return "PARTY" end
+    return nil
 end
 
 -- Sends the (already formatted) message to party/raid chat.
@@ -92,20 +202,21 @@ end
 -- since the group may have changed during a delay.
 local function SendNow(msg)
     if not GzLevelUpDB.enabled then return end
-    if not IsInGroup() then return end
-    local channel = IsInRaid() and "RAID" or "PARTY"
+    local channel = GroupChannel()
+    if not channel then return end
     SendChatMessage(msg, channel)
 end
 
-local function Announce(unit)
+local function Announce(unit, kind)
     if not GzLevelUpDB.enabled then return end
-    if not IsInGroup() then return end
-    -- Own level-up uses the separate message.
-    local template = (unit == "player") and GzLevelUpDB.selfMessage or GzLevelUpDB.message
-    -- Name/level are substituted NOW (at the moment of the level-up).
-    local msg = Format(template, UnitName(unit), UnitLevel(unit))
+    if not GroupChannel() then return end
 
-    local delay = GzLevelUpDB.delayEnabled and ClampDelay(GzLevelUpDB.delaySeconds) or 0
+    local cat   = CATEGORY[kind]
+    local owner = (kind == "pet") and UnitName(OwnerOf(unit)) or nil
+    -- Name/level are substituted NOW (at the moment of the level-up).
+    local msg   = Format(GzLevelUpDB[cat.message], UnitName(unit), UnitLevel(unit), owner)
+
+    local delay = ClampDelay(GzLevelUpDB[cat.delay])
     if delay > 0 then
         C_Timer.After(delay, function() SendNow(msg) end)
     else
@@ -113,8 +224,113 @@ local function Announce(unit)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Auto reply: after my own level-up, thank whoever congratulates me
+-- ---------------------------------------------------------------------------
+
+-- State of the current listening window. `session` invalidates timers from an
+-- earlier window, since C_Timer.After cannot be cancelled.
+local reply = { session = 0, listening = false, pending = false, names = {}, seen = {} }
+
+-- Chat events we listen to, mapped to the channel a reply would go to.
+local REPLY_EVENTS = {
+    CHAT_MSG_PARTY        = "PARTY",
+    CHAT_MSG_PARTY_LEADER = "PARTY",
+    CHAT_MSG_RAID         = "RAID",
+    CHAT_MSG_RAID_LEADER  = "RAID",
+}
+
+-- "Brend-Realm" -> "Brend". Cross-realm names arrive with a realm suffix.
+local function ShortName(name)
+    if not name or name == "" then return nil end
+    return name:match("^([^-]+)") or name
+end
+
+-- Splits the configured trigger list into lowercase words.
+local function TriggerWords()
+    local words = {}
+    for raw in (GzLevelUpDB.replyTriggers or ""):gmatch("[^,]+") do
+        local word = raw:match("^%s*(.-)%s*$"):lower()
+        if word ~= "" then words[#words + 1] = word end
+    end
+    return words
+end
+
+-- True if any word in the message starts with one of the triggers, so "gzzz"
+-- and "gz!" count but "Bugzapper" does not.
+local function IsCongratulation(text)
+    if not text or text == "" then return false end
+    -- Punctuation becomes whitespace so that word starts are easy to find.
+    local padded = " " .. text:lower():gsub("[%p%s]+", " ") .. " "
+    for _, word in ipairs(TriggerWords()) do
+        if padded:find(" " .. word, 1, true) then return true end
+    end
+    return false
+end
+
+local function FormatReply(template, names)
+    return (template or "")
+        :gsub("{names}", table.concat(names, ", "))
+        :gsub("{name}", names[1] or "?")
+        :gsub("{count}", tostring(#names))
+end
+
+local function SendReply(session)
+    if reply.session ~= session then return end
+    reply.listening, reply.pending = false, false
+    if #reply.names == 0 then return end
+    if not GzLevelUpDB.enabled or not GzLevelUpDB.autoReplyEnabled then return end
+    -- Re-check the channel: the group may have changed while we collected.
+    local channel = GroupChannel()
+    if not channel then return end
+    SendChatMessage(FormatReply(GzLevelUpDB.replyMessage, reply.names), channel)
+end
+
+-- Opens the listening window after my own level-up. Deliberately independent
+-- of includeSelf: you may want to thank people without announcing yourself.
+local function StartReplyWindow()
+    if not GzLevelUpDB.enabled or not GzLevelUpDB.autoReplyEnabled then return end
+    if not GroupChannel() then return end
+
+    reply.session   = reply.session + 1
+    reply.listening = true
+    reply.pending   = false
+    reply.names, reply.seen = {}, {}
+
+    -- Give up if nobody says anything within the listening window.
+    local session = reply.session
+    C_Timer.After(ClampDelay(GzLevelUpDB.replyWindow), function()
+        if reply.session == session and not reply.pending then
+            reply.listening = false
+        end
+    end)
+end
+
+local function OnGroupChat(event, text, sender)
+    if not reply.listening then return end
+    -- Only react in the channel the addon is allowed to use.
+    if REPLY_EVENTS[event] ~= GroupChannel() then return end
+
+    local who = ShortName(sender)
+    if not who or who == ShortName(UnitName("player")) then return end
+    if not IsCongratulation(text) then return end
+
+    if not reply.seen[who] then
+        reply.seen[who] = true
+        reply.names[#reply.names + 1] = who
+    end
+
+    -- The first congratulation starts the collection timer; later ones simply
+    -- join the same reply.
+    if not reply.pending then
+        reply.pending = true
+        local session = reply.session
+        C_Timer.After(ClampDelay(GzLevelUpDB.replyCollect), function() SendReply(session) end)
+    end
+end
+
 local function OnUnitLevel(unit)
-    if not IsGroupUnit(unit) then return end
+    if not UnitCategory(unit) then return end
     local guid = UnitGUID(unit)
     if not guid then return end
     local newLevel = UnitLevel(unit)
@@ -122,9 +338,12 @@ local function OnUnitLevel(unit)
 
     local old = knownLevels[guid]
     knownLevels[guid] = newLevel
-    if old and newLevel > old then
-        Announce(unit)
-    end
+    if not old or newLevel <= old then return end
+
+    if unit == "player" then StartReplyWindow() end
+
+    local kind = ClassifyUnit(unit)
+    if kind then Announce(unit, kind) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -135,25 +354,11 @@ local quickPanel
 -- Manual send via button: uses the same channel logic as auto mode.
 local function ManualSend(text)
     if not text or text == "" then return end
-    if IsInGroup() then
-        SendChatMessage(text, IsInRaid() and "RAID" or "PARTY")
+    local channel = GroupChannel()
+    if channel then
+        SendChatMessage(text, channel)
     else
         print(PREFIX .. L.NOT_IN_GROUP)
-    end
-end
-
-local function SaveQuickPanelPos()
-    local point, _, relPoint, x, y = quickPanel:GetPoint()
-    GzLevelUpDB.quickPanelPos = { point = point, relPoint = relPoint, x = x, y = y }
-end
-
-local function RestoreQuickPanelPos()
-    local pos = GzLevelUpDB.quickPanelPos
-    quickPanel:ClearAllPoints()
-    if pos then
-        quickPanel:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
-    else
-        quickPanel:SetPoint("CENTER")
     end
 end
 
@@ -182,7 +387,7 @@ local function CreateQuickPanel()
     p:SetScript("OnDragStart", p.StartMoving)
     p:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        SaveQuickPanelPos()
+        SavePos(self, "quickPanelPos")
     end)
     p:Hide()
 
@@ -206,7 +411,7 @@ local function CreateQuickPanel()
 
     quickPanel = p
     p:SetScale(ClampScale(GzLevelUpDB.quickPanelScale))
-    RestoreQuickPanelPos()
+    RestorePos(p, "quickPanelPos")
     RefreshQuickButtons()
     return p
 end
@@ -222,13 +427,21 @@ f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("UNIT_LEVEL")
-f:SetScript("OnEvent", function(self, event, arg1)
+f:RegisterEvent("UNIT_PET")
+for event in pairs(REPLY_EVENTS) do f:RegisterEvent(event) end
+f:SetScript("OnEvent", function(self, event, arg1, arg2)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON then
             ApplyDefaults()
         end
+    elseif REPLY_EVENTS[event] then
+        OnGroupChat(event, arg1, arg2) -- arg1 = text, arg2 = sender
     elseif event == "UNIT_LEVEL" then
         OnUnitLevel(arg1)
+    elseif event == "UNIT_PET" then
+        -- A pet was summoned or swapped: record its level right away, so the
+        -- next level-up has something to compare against.
+        RecordLevel(PetOf(arg1))
     else -- PLAYER_ENTERING_WORLD, GROUP_ROSTER_UPDATE
         SyncGroup()
         if event == "PLAYER_ENTERING_WORLD" then
@@ -242,42 +455,194 @@ end)
 -- ---------------------------------------------------------------------------
 local configFrame
 
--- Small helper: labeled checkbox.
+local WHITE = "Interface\\Buttons\\WHITE8X8"
+
+-- Small helper: labeled checkbox. The label is exposed as cb.label so callers
+-- can anchor to it and grey it out.
 local function CreateCheck(parent, label)
     local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     cb:SetSize(26, 26)
     local fs = cb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
     fs:SetText(label)
+    cb.label = fs
     return cb
 end
 
--- Small helper: label + input field + preview line as a block.
-local function CreateMessageBlock(parent, labelText, x, y)
-    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label:SetPoint("TOPLEFT", x, y)
-    label:SetText(labelText)
+-- One announcement category as a three-line block:
+--   [x] <label>                              [ delay ]
+--   [ message template                                ]
+--   Preview: "..."
+-- Height is BLOCK_HEIGHT, so blocks can simply be stacked.
+local BLOCK_HEIGHT = 81
 
+local function CreateCategoryBlock(parent, y, labelText)
+    local cb = CreateCheck(parent, labelText)
+    cb:SetPoint("TOPLEFT", 26, y)
+
+    local delay = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    delay:SetSize(38, 22)
+    delay:SetPoint("TOPRIGHT", -48, y - 3)
+    delay:SetAutoFocus(false)
+    delay:SetNumeric(true)
+    delay:SetMaxLetters(2)
+    delay:SetJustifyH("CENTER")
+
+    -- Anchored on both sides instead of a fixed width, so the whole tab
+    -- follows the window width.
     local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
-    edit:SetSize(350, 28)
-    edit:SetPoint("TOPLEFT", x + 4, y - 20)
+    edit:SetHeight(26)
+    edit:SetPoint("TOPLEFT", 36, y - 28)
+    edit:SetPoint("TOPRIGHT", -32, y - 28)
     edit:SetAutoFocus(false)
     edit:SetMaxLetters(240)
 
     local preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    preview:SetPoint("TOPLEFT", x + 4, y - 46)
-    preview:SetWidth(350)
+    preview:SetPoint("TOPLEFT", 38, y - 59)
+    preview:SetPoint("TOPRIGHT", -34, y - 59)
     preview:SetJustifyH("LEFT")
 
-    return label, edit, preview
+    return { cb = cb, delay = delay, edit = edit, preview = preview }
+end
+
+-- Reads a field from the .toc, so version/author/links have a single source.
+local function AddonMeta(field)
+    local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    local value = get and get(ADDON, field)
+    if value == nil or value == "" then return nil end
+    return value
+end
+
+-- A label with a read-only URL underneath. WoW cannot open a browser, so the
+-- field exists purely to be selected and copied: focusing it selects the whole
+-- URL, and typing into it is undone.
+local function CreateLinkRow(parent, y, labelText, url)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("TOPLEFT", 36, y)
+    label:SetText(labelText)
+
+    local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    edit:SetHeight(24)
+    edit:SetPoint("TOPLEFT", 36, y - 20)
+    edit:SetPoint("TOPRIGHT", -32, y - 20)
+    edit:SetAutoFocus(false)
+    edit:SetText(url)
+    edit:SetCursorPosition(0)
+
+    edit:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    edit:SetScript("OnTextChanged", function(self, userInput)
+        if userInput then
+            self:SetText(url)
+            self:HighlightText()
+        end
+    end)
+    edit:SetScript("OnEnterPressed", edit.ClearFocus)
+    edit:SetScript("OnEscapePressed", edit.ClearFocus)
+
+    return edit
+end
+
+-- Small helper: "<label>  [ nn ] s" on one line, for the reply timings.
+local function CreateSecondsRow(parent, y, labelText)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("TOPLEFT", 36, y)
+    label:SetText(labelText)
+
+    local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    edit:SetSize(38, 22)
+    edit:SetPoint("TOPRIGHT", -48, y + 4)
+    edit:SetAutoFocus(false)
+    edit:SetNumeric(true)
+    edit:SetMaxLetters(2)
+    edit:SetJustifyH("CENTER")
+
+    local unit = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    unit:SetPoint("LEFT", edit, "RIGHT", 6, 0)
+    unit:SetText(L.REPLY_SECONDS)
+
+    return { label = label, edit = edit, unit = unit }
+end
+
+-- Greys out a block's fields while its category is switched off. The checkbox
+-- itself stays usable, otherwise it could never be switched back on.
+local function SetBlockEnabled(block, on)
+    for _, e in ipairs({ block.edit, block.delay }) do
+        e:EnableMouse(on)
+        if on then
+            e:SetTextColor(1, 1, 1)
+        else
+            e:ClearFocus()
+            e:SetTextColor(0.5, 0.5, 0.5)
+        end
+    end
+    if on then
+        block.cb.label:SetTextColor(1, 0.82, 0)
+        block.preview:SetTextColor(1, 1, 1)
+    else
+        block.cb.label:SetTextColor(0.5, 0.5, 0.5)
+        block.preview:SetTextColor(0.5, 0.5, 0.5)
+    end
+end
+
+-- Small helper: a "(?)" hotspot showing a tooltip.
+local function CreateHelpIcon(parent, title, body)
+    local h = CreateFrame("Frame", nil, parent)
+    h:SetSize(20, 18)
+    h:EnableMouse(true)
+    local fs = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    fs:SetPoint("CENTER")
+    fs:SetText("|cff9d9d9d(?)|r")
+    h:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(title)
+        GameTooltip:AddLine(body, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    h:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return h
+end
+
+-- Small helper: a flat tab button. The active one is underlined.
+local function CreateTab(parent, text)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(22)
+
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    fs:SetPoint("CENTER", 0, 1)
+    fs:SetText(text)
+    b:SetWidth(math.max(50, fs:GetStringWidth() + 14))
+
+    b:SetHighlightTexture(WHITE)
+    local hl = b:GetHighlightTexture()
+    if hl then hl:SetVertexColor(1, 1, 1, 0.08) end
+
+    local line = b:CreateTexture(nil, "OVERLAY")
+    line:SetTexture(WHITE)
+    line:SetHeight(2)
+    line:SetPoint("BOTTOMLEFT", 6, 0)
+    line:SetPoint("BOTTOMRIGHT", -6, 0)
+    line:SetVertexColor(1, 0.82, 0)
+
+    b.label, b.line = fs, line
+    return b
+end
+
+-- Marks a tab as selected (gold + underline) or not (grey).
+local function SetTabActive(tab, active)
+    if active then
+        tab.label:SetTextColor(1, 0.82, 0)
+        tab.line:Show()
+    else
+        tab.label:SetTextColor(0.6, 0.6, 0.6)
+        tab.line:Hide()
+    end
 end
 
 local function BuildConfig()
     if configFrame then return configFrame end
 
     local frame = CreateFrame("Frame", "GzLevelUpConfigFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(420, 560)
-    frame:SetPoint("CENTER")
+    frame:SetSize(460, 355)
     frame:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -285,11 +650,16 @@ local function BuildConfig()
         insets = { left = 11, right = 12, top = 12, bottom = 11 },
     })
     frame:SetFrameStrata("DIALOG")
+    frame:SetClampedToScreen(true) -- a stored position must stay reachable
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        SavePos(self, "configPos")
+    end)
+    RestorePos(frame, "configPos")
     frame:Hide()
     tinsert(UISpecialFrames, "GzLevelUpConfigFrame") -- closes with ESC
 
@@ -300,106 +670,159 @@ local function BuildConfig()
     title:SetPoint("TOP", 0, -16)
     title:SetText("GzLevelUp")
 
-    local desc = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    desc:SetPoint("TOP", 0, -40)
-    desc:SetWidth(370)
-    desc:SetText(L.CONFIG_DESC)
+    -- Tab bar --------------------------------------------------------------
+    local msgTab = CreateTab(frame, L.TAB_MESSAGES)
+    msgTab:SetPoint("TOPLEFT", 16, -42)
 
-    -- Block 1: message for group members ----------------------------------
-    local groupLabel, groupEdit, groupPreview =
-        CreateMessageBlock(frame, L.MESSAGE_LABEL, 30, -70)
+    local replyTab = CreateTab(frame, L.TAB_REPLY)
+    replyTab:SetPoint("LEFT", msgTab, "RIGHT", 6, 0)
 
-    -- Checkbox: announce own level-up -------------------------------------
-    local selfCB = CreateCheck(frame, L.OPT_INCLUDE_SELF)
-    selfCB:SetPoint("TOPLEFT", 30, -148)
+    local panelTab = CreateTab(frame, L.TAB_PANEL)
+    panelTab:SetPoint("LEFT", replyTab, "RIGHT", 6, 0)
 
-    -- Block 2: message for own level-up -----------------------------------
-    local selfLabel, selfEdit, selfPreview =
-        CreateMessageBlock(frame, L.SELF_MESSAGE_LABEL, 30, -180)
+    local settingsTab = CreateTab(frame, L.TAB_SETTINGS)
+    settingsTab:SetPoint("LEFT", panelTab, "RIGHT", 6, 0)
 
-    -- Enables/disables the field for the own message.
-    local function SetSelfEnabled(on)
-        selfEdit:EnableMouse(on)
+    local infoTab = CreateTab(frame, L.TAB_INFO)
+    infoTab:SetPoint("LEFT", settingsTab, "RIGHT", 6, 0)
+
+    local sep = frame:CreateTexture(nil, "ARTWORK")
+    sep:SetTexture(WHITE)
+    sep:SetHeight(1)
+    sep:SetPoint("TOPLEFT", 20, -64)
+    sep:SetPoint("TOPRIGHT", -20, -64)
+    sep:SetVertexColor(1, 1, 1, 0.15)
+
+    -- One container per tab; only the active one is shown.
+    local function CreatePage()
+        local p = CreateFrame("Frame", nil, frame)
+        p:SetPoint("TOPLEFT", 0, -78)
+        p:SetPoint("BOTTOMRIGHT", 0, 20)
+        return p
+    end
+    local msgPage, replyPage, panelPage, settingsPage, infoPage =
+        CreatePage(), CreatePage(), CreatePage(), CreatePage(), CreatePage()
+
+    -- === Tab 1: messages ==================================================
+    -- Column heading for the delay fields, plus one tooltip covering both the
+    -- placeholders and what the delay column means.
+    local delayHeader = msgPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    delayHeader:SetPoint("TOPRIGHT", -48, 0)
+    delayHeader:SetText(L.DELAY_HEADER)
+
+    local help = CreateHelpIcon(msgPage, L.PLACEHOLDER_TITLE,
+        L.PLACEHOLDER_HELP .. "\n\n" .. L.DELAY_HELP)
+    help:SetPoint("TOPRIGHT", -24, 2)
+
+    local BLOCK_LABEL = {
+        member = L.OPT_GROUP,
+        self   = L.OPT_INCLUDE_SELF,
+        pet    = L.OPT_INCLUDE_PETS,
+    }
+
+    -- One identical block per category, stacked.
+    local blocks = {}
+    for i, kind in ipairs(CATEGORY_ORDER) do
+        local cat   = CATEGORY[kind]
+        local block = CreateCategoryBlock(msgPage, -18 - (i - 1) * BLOCK_HEIGHT, BLOCK_LABEL[kind])
+        block.kind = kind
+        block.cb:SetScript("OnClick", function(self)
+            GzLevelUpDB[cat.enabled] = self:GetChecked() and true or false
+            SetBlockEnabled(block, GzLevelUpDB[cat.enabled])
+        end)
+        blocks[i] = block
+    end
+
+    -- === Tab 2: auto reply ================================================
+    local replyCB = CreateCheck(replyPage, L.OPT_AUTOREPLY)
+    replyCB:SetPoint("TOPLEFT", 26, 0)
+
+    local replyHelp = CreateHelpIcon(replyPage, L.REPLY_HELP_TITLE, L.REPLY_HELP)
+    replyHelp:SetPoint("TOPRIGHT", -24, 2)
+
+    local replyMsgLabel = replyPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    replyMsgLabel:SetPoint("TOPLEFT", 36, -36)
+    replyMsgLabel:SetText(L.REPLY_MESSAGE_LABEL)
+
+    local replyEdit = CreateFrame("EditBox", nil, replyPage, "InputBoxTemplate")
+    replyEdit:SetHeight(26)
+    replyEdit:SetPoint("TOPLEFT", 36, -56)
+    replyEdit:SetPoint("TOPRIGHT", -32, -56)
+    replyEdit:SetAutoFocus(false)
+    replyEdit:SetMaxLetters(240)
+
+    local replyPreview = replyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    replyPreview:SetPoint("TOPLEFT", 38, -87)
+    replyPreview:SetPoint("TOPRIGHT", -34, -87)
+    replyPreview:SetJustifyH("LEFT")
+
+    local triggerLabel = replyPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    triggerLabel:SetPoint("TOPLEFT", 36, -114)
+    triggerLabel:SetText(L.REPLY_TRIGGERS_LABEL)
+
+    local triggerEdit = CreateFrame("EditBox", nil, replyPage, "InputBoxTemplate")
+    triggerEdit:SetHeight(26)
+    triggerEdit:SetPoint("TOPLEFT", 36, -134)
+    triggerEdit:SetPoint("TOPRIGHT", -32, -134)
+    triggerEdit:SetAutoFocus(false)
+    triggerEdit:SetMaxLetters(240)
+
+    local collectRow = CreateSecondsRow(replyPage, -172, L.REPLY_COLLECT_LABEL)
+    local windowRow  = CreateSecondsRow(replyPage, -200, L.REPLY_WINDOW_LABEL)
+
+    -- Greys out the whole tab while auto reply is off.
+    local function SetReplyEnabled(on)
+        for _, e in ipairs({ replyEdit, triggerEdit, collectRow.edit, windowRow.edit }) do
+            e:EnableMouse(on)
+            if on then
+                e:SetTextColor(1, 1, 1)
+            else
+                e:ClearFocus()
+                e:SetTextColor(0.5, 0.5, 0.5)
+            end
+        end
+        local r, g, b = 1, 0.82, 0
+        if not on then r, g, b = 0.5, 0.5, 0.5 end
+        for _, fs in ipairs({ replyMsgLabel, triggerLabel, collectRow.label, windowRow.label }) do
+            fs:SetTextColor(r, g, b)
+        end
         if on then
-            selfEdit:SetTextColor(1, 1, 1)
-            selfLabel:SetTextColor(1, 0.82, 0)
-            selfPreview:SetTextColor(1, 1, 1)
+            replyPreview:SetTextColor(1, 1, 1)
         else
-            selfEdit:ClearFocus()
-            selfEdit:SetTextColor(0.5, 0.5, 0.5)
-            selfLabel:SetTextColor(0.5, 0.5, 0.5)
-            selfPreview:SetTextColor(0.5, 0.5, 0.5)
+            replyPreview:SetTextColor(0.5, 0.5, 0.5)
         end
     end
 
-    selfCB:SetScript("OnClick", function(self)
-        GzLevelUpDB.includeSelf = self:GetChecked() and true or false
-        SetSelfEnabled(GzLevelUpDB.includeSelf)
+    replyCB:SetScript("OnClick", function(self)
+        GzLevelUpDB.autoReplyEnabled = self:GetChecked() and true or false
+        SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
     end)
 
-    -- Checkbox: addon enabled ---------------------------------------------
-    local enabledCB = CreateCheck(frame, L.OPT_ENABLED)
-    enabledCB:SetPoint("TOPLEFT", 30, -258)
-    enabledCB:SetScript("OnClick", function(self)
-        GzLevelUpDB.enabled = self:GetChecked() and true or false
-    end)
-
-    -- Delay (opt-in) + seconds field --------------------------------------
-    local delayCB = CreateCheck(frame, L.OPT_DELAY)
-    delayCB:SetPoint("TOPLEFT", 30, -288)
-
-    local secLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    secLabel:SetPoint("TOPLEFT", 54, -320)
-    secLabel:SetText(L.DELAY_SECONDS)
-
-    local delayEdit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    delayEdit:SetSize(50, 22)
-    delayEdit:SetPoint("LEFT", secLabel, "RIGHT", 12, 0)
-    delayEdit:SetAutoFocus(false)
-    delayEdit:SetMaxLetters(5)
-
-    local function SetDelayEnabled(on)
-        delayEdit:EnableMouse(on)
-        if on then
-            delayEdit:SetTextColor(1, 1, 1)
-            secLabel:SetTextColor(1, 0.82, 0)
-        else
-            delayEdit:ClearFocus()
-            delayEdit:SetTextColor(0.5, 0.5, 0.5)
-            secLabel:SetTextColor(0.5, 0.5, 0.5)
-        end
-    end
-
-    delayCB:SetScript("OnClick", function(self)
-        GzLevelUpDB.delayEnabled = self:GetChecked() and true or false
-        SetDelayEnabled(GzLevelUpDB.delayEnabled)
-    end)
-
-    -- Quick-buttons panel (opt-in) + button texts -------------------------
-    local quickCB = CreateCheck(frame, L.OPT_QUICKPANEL)
-    quickCB:SetPoint("TOPLEFT", 30, -352)
+    -- === Tab 3: quick panel ===============================================
+    local quickCB = CreateCheck(panelPage, L.OPT_QUICKPANEL)
+    quickCB:SetPoint("TOPLEFT", 26, 0)
     quickCB:SetScript("OnClick", function(self)
         GzLevelUpDB.quickPanelEnabled = self:GetChecked() and true or false
         UpdateQuickPanel()
     end)
 
-    local gzLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    gzLabel:SetPoint("TOPLEFT", 40, -386)
+    local gzLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    gzLabel:SetPoint("TOPLEFT", 36, -42)
     gzLabel:SetText(L.QUICK_GZ_LABEL)
 
-    local gzEdit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    gzEdit:SetSize(70, 22)
-    gzEdit:SetPoint("LEFT", gzLabel, "RIGHT", 12, 0)
+    local gzEdit = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
+    gzEdit:SetSize(80, 22)
+    gzEdit:SetPoint("TOPLEFT", 42, -62)
     gzEdit:SetAutoFocus(false)
     gzEdit:SetMaxLetters(40)
 
-    local tyLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    tyLabel:SetPoint("TOPLEFT", 225, -386)
+    local tyLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    tyLabel:SetPoint("TOPLEFT", panelPage, "TOP", 12, -42)
     tyLabel:SetText(L.QUICK_TY_LABEL)
 
-    local tyEdit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    tyEdit:SetSize(70, 22)
-    tyEdit:SetPoint("LEFT", tyLabel, "RIGHT", 12, 0)
+    local tyEdit = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
+    tyEdit:SetSize(80, 22)
+    tyEdit:SetPoint("TOPLEFT", panelPage, "TOP", 18, -62)
     tyEdit:SetAutoFocus(false)
     tyEdit:SetMaxLetters(40)
 
@@ -411,10 +834,9 @@ local function BuildConfig()
         if quickPanel then quickPanel.tyBtn:SetText(self:GetText()) end
     end)
 
-    -- Size slider for the panel -------------------------------------------
-    local scaleSlider = CreateFrame("Slider", "GzLevelUpScaleSlider", frame, "OptionsSliderTemplate")
-    scaleSlider:SetWidth(340)
-    scaleSlider:SetPoint("TOP", 0, -448)
+    local scaleSlider = CreateFrame("Slider", "GzLevelUpScaleSlider", panelPage, "OptionsSliderTemplate")
+    scaleSlider:SetPoint("TOPLEFT", 40, -130)
+    scaleSlider:SetPoint("TOPRIGHT", -40, -130)
     scaleSlider:SetMinMaxValues(MIN_SCALE, MAX_SCALE)
     scaleSlider:SetValueStep(0.05)
     scaleSlider:SetObeyStepOnDrag(true)
@@ -434,92 +856,232 @@ local function BuildConfig()
         end
     end)
 
-    -- Live preview for both messages --------------------------------------
-    local function UpdatePreview()
-        local name  = UnitName("player") or L.PLAYER
-        local level = (UnitLevel("player") or 1) + 1
-        groupPreview:SetText(L.PREVIEW_LABEL .. " \"" .. Format(groupEdit:GetText(), name, level) .. "\"")
-        selfPreview:SetText(L.PREVIEW_LABEL .. " \"" .. Format(selfEdit:GetText(), name, level) .. "\"")
-    end
-
-    -- Save all settings ---------------------------------------------------
-    local function Commit()
-        GzLevelUpDB.message         = groupEdit:GetText()
-        GzLevelUpDB.selfMessage     = selfEdit:GetText()
-        GzLevelUpDB.delaySeconds    = ClampDelay(delayEdit:GetText())
-        GzLevelUpDB.gzButtonMessage = gzEdit:GetText()
-        GzLevelUpDB.tyButtonMessage = tyEdit:GetText()
-        delayEdit:SetText(tostring(GzLevelUpDB.delaySeconds))
-        delayEdit:SetCursorPosition(0)
-        groupEdit:ClearFocus()
-        selfEdit:ClearFocus()
-        delayEdit:ClearFocus()
-        gzEdit:ClearFocus()
-        tyEdit:ClearFocus()
-        RefreshQuickButtons()
-        print(PREFIX .. L.MSG_SAVED)
-    end
-
-    for _, e in ipairs({ groupEdit, selfEdit }) do
-        e:SetScript("OnTextChanged", UpdatePreview)
-        e:SetScript("OnEnterPressed", Commit)
-        e:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    end
-
-    for _, e in ipairs({ delayEdit, gzEdit, tyEdit }) do
-        e:SetScript("OnEnterPressed", Commit)
-        e:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    end
-
-    -- Buttons ----------------------------------------------------------------
-    local saveBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    saveBtn:SetSize(120, 24)
-    saveBtn:SetPoint("BOTTOMLEFT", 30, 22)
-    saveBtn:SetText(L.BTN_SAVE)
-    saveBtn:SetScript("OnClick", Commit)
-
-    local testBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    testBtn:SetSize(120, 24)
-    testBtn:SetPoint("BOTTOM", 0, 22)
-    testBtn:SetText(L.BTN_PREVIEW)
-    testBtn:SetScript("OnClick", function()
-        print(PREFIX .. groupPreview:GetText())
-        if GzLevelUpDB.includeSelf then
-            print(PREFIX .. selfPreview:GetText())
+    -- Greys out the panel details while the panel itself is off.
+    local function SetQuickEnabled(on)
+        local r, g, b = 1, 0.82, 0
+        if not on then r, g, b = 0.5, 0.5, 0.5 end
+        gzLabel:SetTextColor(r, g, b)
+        tyLabel:SetTextColor(r, g, b)
+        for _, e in ipairs({ gzEdit, tyEdit }) do
+            e:EnableMouse(on)
+            if on then
+                e:SetTextColor(1, 1, 1)
+            else
+                e:ClearFocus()
+                e:SetTextColor(0.5, 0.5, 0.5)
+            end
         end
+        if on then scaleSlider:Enable() else scaleSlider:Disable() end
+        if scaleText then scaleText:SetTextColor(r, g, b) end
+    end
+
+    quickCB:HookScript("OnClick", function()
+        SetQuickEnabled(GzLevelUpDB.quickPanelEnabled)
     end)
 
-    local closeBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    closeBtn:SetSize(120, 24)
-    closeBtn:SetPoint("BOTTOMRIGHT", -30, 22)
-    closeBtn:SetText(L.BTN_CLOSE)
-    closeBtn:SetScript("OnClick", function() frame:Hide() end)
+    -- === Tab 4: settings ==================================================
+    local enabledCB = CreateCheck(settingsPage, L.OPT_ENABLED)
+    enabledCB:SetPoint("TOPLEFT", 26, 0)
+    enabledCB:SetScript("OnClick", function(self)
+        GzLevelUpDB.enabled = self:GetChecked() and true or false
+    end)
 
-    -- Load the current values when opening.
-    frame:SetScript("OnShow", function()
-        groupEdit:SetText(GzLevelUpDB.message)
-        groupEdit:SetCursorPosition(0)
-        selfEdit:SetText(GzLevelUpDB.selfMessage)
-        selfEdit:SetCursorPosition(0)
+    -- Raids are opt-in for everything the addon sends.
+    local raidCB = CreateCheck(settingsPage, L.OPT_USE_RAID)
+    raidCB:SetPoint("TOPLEFT", 26, -30)
+    raidCB:SetScript("OnClick", function(self)
+        GzLevelUpDB.useRaidChat = self:GetChecked() and true or false
+    end)
+
+    -- The reset button lives here too; it is wired up further down, once the
+    -- confirmation popup and LoadValues() exist.
+    local resetBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
+    resetBtn:SetSize(160, 24)
+    resetBtn:SetPoint("TOPLEFT", 30, -74)
+    resetBtn:SetText(L.BTN_RESET)
+
+    -- === Tab 5: info ======================================================
+    -- Everything here comes from the .toc, so a release only has to stamp the
+    -- version in one place.
+    local infoName = infoPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    infoName:SetPoint("TOP", 0, -4)
+    infoName:SetText(ADDON)
+
+    local infoVersion = infoPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    infoVersion:SetPoint("TOP", 0, -30)
+    infoVersion:SetText(L.INFO_VERSION:format(AddonMeta("Version") or L.INFO_UNKNOWN))
+
+    local infoAuthor = infoPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    infoAuthor:SetPoint("TOP", 0, -50)
+    infoAuthor:SetText(L.INFO_AUTHOR:format(AddonMeta("Author") or L.INFO_UNKNOWN))
+
+    CreateLinkRow(infoPage, -84, L.INFO_CURSEFORGE,
+        AddonMeta("X-CurseForge") or "")
+    CreateLinkRow(infoPage, -134, L.INFO_GITHUB,
+        AddonMeta("X-Website") or "")
+
+    local copyHint = infoPage:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    copyHint:SetPoint("TOPLEFT", 38, -182)
+    copyHint:SetText(L.INFO_COPY_HINT)
+
+    -- === Tab switching =====================================================
+    local pages = {
+        { msgTab,      msgPage },
+        { replyTab,    replyPage },
+        { panelTab,    panelPage },
+        { settingsTab, settingsPage },
+        { infoTab,     infoPage },
+    }
+
+    local function SelectTab(index)
+        for i, entry in ipairs(pages) do
+            SetTabActive(entry[1], i == index)
+            if i == index then entry[2]:Show() else entry[2]:Hide() end
+        end
+    end
+
+    for i, entry in ipairs(pages) do
+        entry[1]:SetScript("OnClick", function() SelectTab(i) end)
+    end
+
+    -- === Live preview ======================================================
+    local function UpdatePreview()
+        local me    = UnitName("player") or L.PLAYER
+        local level = (UnitLevel("player") or 1) + 1
+        for _, block in ipairs(blocks) do
+            -- The pet preview uses a stand-in pet name and the player as owner.
+            local name, owner = me, nil
+            if block.kind == "pet" then
+                name, owner = UnitName("pet") or L.PET, me
+            end
+            block.preview:SetText(L.PREVIEW_LABEL .. " \""
+                .. Format(block.edit:GetText(), name, level, owner) .. "\"")
+        end
+        -- Reply preview: pretend two people congratulated us.
+        local sample = { L.PREVIEW_NAME_1, L.PREVIEW_NAME_2 }
+        replyPreview:SetText(L.PREVIEW_LABEL .. " \""
+            .. FormatReply(replyEdit:GetText(), sample) .. "\"")
+    end
+
+    -- === Saving ============================================================
+    -- Everything is saved automatically: checkboxes and the slider write
+    -- through on change, text fields when they lose focus or the window closes.
+    local function Commit()
+        for _, block in ipairs(blocks) do
+            local cat = CATEGORY[block.kind]
+            GzLevelUpDB[cat.message] = block.edit:GetText()
+            GzLevelUpDB[cat.delay]   = ClampDelay(block.delay:GetText())
+        end
+        GzLevelUpDB.replyMessage    = replyEdit:GetText()
+        GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
+        GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
+        GzLevelUpDB.replyWindow     = ClampDelay(windowRow.edit:GetText())
+        GzLevelUpDB.gzButtonMessage = gzEdit:GetText()
+        GzLevelUpDB.tyButtonMessage = tyEdit:GetText()
+        RefreshQuickButtons()
+    end
+
+    for _, block in ipairs(blocks) do
+        block.edit:SetScript("OnTextChanged", UpdatePreview)
+        block.edit:SetScript("OnEditFocusLost", Commit)
+        block.edit:SetScript("OnEnterPressed", block.edit.ClearFocus)
+        block.edit:SetScript("OnEscapePressed", block.edit.ClearFocus)
+
+        -- Delay fields additionally normalise their text to the clamped value.
+        block.delay:SetScript("OnEditFocusLost", function(self)
+            Commit()
+            self:SetText(tostring(GzLevelUpDB[CATEGORY[block.kind].delay]))
+            self:SetCursorPosition(0)
+        end)
+        block.delay:SetScript("OnEnterPressed", block.delay.ClearFocus)
+        block.delay:SetScript("OnEscapePressed", block.delay.ClearFocus)
+    end
+
+    replyEdit:SetScript("OnTextChanged", UpdatePreview)
+
+    for _, e in ipairs({ gzEdit, tyEdit, replyEdit, triggerEdit }) do
+        e:SetScript("OnEditFocusLost", Commit)
+        e:SetScript("OnEnterPressed", e.ClearFocus)
+        e:SetScript("OnEscapePressed", e.ClearFocus)
+    end
+
+    -- The two timing fields normalise their text to the clamped value.
+    for _, row in ipairs({ { collectRow, "replyCollect" }, { windowRow, "replyWindow" } }) do
+        local edit, key = row[1].edit, row[2]
+        edit:SetScript("OnEditFocusLost", function(self)
+            Commit()
+            self:SetText(tostring(GzLevelUpDB[key]))
+            self:SetCursorPosition(0)
+        end)
+        edit:SetScript("OnEnterPressed", edit.ClearFocus)
+        edit:SetScript("OnEscapePressed", edit.ClearFocus)
+    end
+
+    -- Load the current values into all widgets.
+    local function LoadValues()
+        for _, block in ipairs(blocks) do
+            local cat = CATEGORY[block.kind]
+            local on  = GzLevelUpDB[cat.enabled] and true or false
+            block.edit:SetText(GzLevelUpDB[cat.message])
+            block.edit:SetCursorPosition(0)
+            block.delay:SetText(tostring(ClampDelay(GzLevelUpDB[cat.delay])))
+            block.delay:SetCursorPosition(0)
+            block.cb:SetChecked(on)
+            SetBlockEnabled(block, on)
+        end
         enabledCB:SetChecked(GzLevelUpDB.enabled)
-        selfCB:SetChecked(GzLevelUpDB.includeSelf)
-        SetSelfEnabled(GzLevelUpDB.includeSelf)
-        delayCB:SetChecked(GzLevelUpDB.delayEnabled)
-        delayEdit:SetText(tostring(GzLevelUpDB.delaySeconds))
-        delayEdit:SetCursorPosition(0)
-        SetDelayEnabled(GzLevelUpDB.delayEnabled)
+        raidCB:SetChecked(GzLevelUpDB.useRaidChat)
+
+        replyCB:SetChecked(GzLevelUpDB.autoReplyEnabled)
+        replyEdit:SetText(GzLevelUpDB.replyMessage)
+        replyEdit:SetCursorPosition(0)
+        triggerEdit:SetText(GzLevelUpDB.replyTriggers)
+        triggerEdit:SetCursorPosition(0)
+        collectRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.replyCollect)))
+        collectRow.edit:SetCursorPosition(0)
+        windowRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.replyWindow)))
+        windowRow.edit:SetCursorPosition(0)
+        SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
+
         quickCB:SetChecked(GzLevelUpDB.quickPanelEnabled)
         gzEdit:SetText(GzLevelUpDB.gzButtonMessage)
         gzEdit:SetCursorPosition(0)
         tyEdit:SetText(GzLevelUpDB.tyButtonMessage)
         tyEdit:SetCursorPosition(0)
+        SetQuickEnabled(GzLevelUpDB.quickPanelEnabled)
         scaleSlider:SetValue(ClampScale(GzLevelUpDB.quickPanelScale))
         UpdatePreview()
-    end)
+    end
 
-    -- Reset the panel labels when closing without saving.
-    frame:SetScript("OnHide", RefreshQuickButtons)
+    -- === Restore defaults ==================================================
+    StaticPopupDialogs["GZLEVELUP_RESET"] = {
+        text = L.RESET_CONFIRM,
+        button1 = YES,
+        button2 = NO,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+        OnAccept = function()
+            wipe(GzLevelUpDB) -- also drops both stored window positions
+            ApplyDefaults()
+            UpdateQuickPanel()
+            if quickPanel then
+                quickPanel:SetScale(ClampScale(GzLevelUpDB.quickPanelScale))
+                RestorePos(quickPanel, "quickPanelPos")
+            end
+            RestorePos(frame, "configPos")
+            LoadValues()
+            print(PREFIX .. L.MSG_RESET)
+        end,
+    }
 
+    resetBtn:SetScript("OnClick", function() StaticPopup_Show("GZLEVELUP_RESET") end)
+
+    frame:SetScript("OnShow", LoadValues)
+    frame:SetScript("OnHide", Commit) -- catches a field that still had focus
+
+    SelectTab(1)
     configFrame = frame
     return frame
 end
@@ -554,6 +1116,15 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "off" then
         GzLevelUpDB.enabled = false
         print(PREFIX .. L.ENABLED_OFF)
+    elseif cmd == "reply" then
+        GzLevelUpDB.autoReplyEnabled = not GzLevelUpDB.autoReplyEnabled
+        print(PREFIX .. L.AUTOREPLY_SET:format(tostring(GzLevelUpDB.autoReplyEnabled)))
+    elseif cmd == "raid" then
+        GzLevelUpDB.useRaidChat = not GzLevelUpDB.useRaidChat
+        print(PREFIX .. L.USE_RAID_SET:format(tostring(GzLevelUpDB.useRaidChat)))
+    elseif cmd == "group" then
+        GzLevelUpDB.announceGroup = not GzLevelUpDB.announceGroup
+        print(PREFIX .. L.ANNOUNCE_GROUP_SET:format(tostring(GzLevelUpDB.announceGroup)))
     elseif cmd == "self" then
         GzLevelUpDB.includeSelf = not GzLevelUpDB.includeSelf
         print(PREFIX .. L.INCLUDE_SELF_SET:format(tostring(GzLevelUpDB.includeSelf)))
@@ -571,16 +1142,34 @@ SlashCmdList.GZLEVELUP = function(msg)
         else
             print(PREFIX .. L.SELF_MESSAGE_CURRENT:format(GzLevelUpDB.selfMessage))
         end
-    elseif cmd == "delay" then
-        if rest == "" then
-            print(PREFIX .. L.DELAY_CURRENT:format(StateText(GzLevelUpDB.delayEnabled), tostring(GzLevelUpDB.delaySeconds)))
-        elseif rest:lower() == "off" then
-            GzLevelUpDB.delayEnabled = false
-            print(PREFIX .. L.DELAY_OFF)
+    elseif cmd == "pets" then
+        GzLevelUpDB.includePets = not GzLevelUpDB.includePets
+        print(PREFIX .. L.INCLUDE_PETS_SET:format(tostring(GzLevelUpDB.includePets)))
+    elseif cmd == "petmsg" then
+        if rest ~= "" then
+            GzLevelUpDB.petMessage = rest
+            print(PREFIX .. L.PET_MESSAGE_SET:format(rest))
         else
-            local n = ClampDelay(rest)
-            GzLevelUpDB.delaySeconds = n
-            GzLevelUpDB.delayEnabled = n > 0
+            print(PREFIX .. L.PET_MESSAGE_CURRENT:format(GzLevelUpDB.petMessage))
+        end
+    elseif cmd == "delay" then
+        -- "/gz delay <sec>" sets all three; "/gz delay <category> <sec>" one.
+        local who, value = rest:match("^(%S*)%s*(.*)$")
+        local single = DELAY_ALIAS[who:lower()]
+        if rest == "" then
+            print(PREFIX .. L.DELAY_CURRENT:format(
+                tostring(ClampDelay(GzLevelUpDB.groupDelay)),
+                tostring(ClampDelay(GzLevelUpDB.selfDelay)),
+                tostring(ClampDelay(GzLevelUpDB.petDelay))))
+        elseif single then
+            local n = (value:lower() == "off") and 0 or ClampDelay(value)
+            GzLevelUpDB[CATEGORY[single].delay] = n
+            print(PREFIX .. L.DELAY_SET_ONE:format(who:lower(), tostring(n)))
+        else
+            local n = (rest:lower() == "off") and 0 or ClampDelay(rest)
+            for _, kind in ipairs(CATEGORY_ORDER) do
+                GzLevelUpDB[CATEGORY[kind].delay] = n
+            end
             print(PREFIX .. L.DELAY_SET:format(tostring(n)))
         end
     elseif cmd == "panel" then
@@ -599,10 +1188,17 @@ SlashCmdList.GZLEVELUP = function(msg)
             print(PREFIX .. L.SCALE_SET:format(math.floor(ClampScale(GzLevelUpDB.quickPanelScale) * 100 + 0.5)))
         end
     elseif cmd == "test" then
+        local me    = UnitName("player")
         local level = (UnitLevel("player") or 1) + 1
-        print(PREFIX .. L.PREVIEW_PREFIX .. Format(GzLevelUpDB.message, UnitName("player"), level))
-        if GzLevelUpDB.includeSelf then
-            print(PREFIX .. L.PREVIEW_PREFIX .. Format(GzLevelUpDB.selfMessage, UnitName("player"), level))
+        for _, kind in ipairs(CATEGORY_ORDER) do
+            local cat = CATEGORY[kind]
+            if GzLevelUpDB[cat.enabled] then
+                local name, owner = me, nil
+                if kind == "pet" then
+                    name, owner = UnitName("pet") or L.PET, me
+                end
+                print(PREFIX .. L.PREVIEW_PREFIX .. Format(GzLevelUpDB[cat.message], name, level, owner))
+            end
         end
     else
         print(PREFIX .. L.HELP_HEADER)
@@ -610,10 +1206,16 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_ONOFF:format(StateText(GzLevelUpDB.enabled)))
         print(L.HELP_MSG)
         print(L.HELP_SELFMSG)
+        print(L.HELP_PETMSG)
         print(L.HELP_DELAY)
+        print(L.HELP_DELAY_ONE)
         print(L.HELP_PANEL)
         print(L.HELP_SCALE)
+        print(L.HELP_REPLY:format(tostring(GzLevelUpDB.autoReplyEnabled)))
+        print(L.HELP_RAID:format(tostring(GzLevelUpDB.useRaidChat)))
+        print(L.HELP_GROUP:format(tostring(GzLevelUpDB.announceGroup)))
         print(L.HELP_SELF:format(tostring(GzLevelUpDB.includeSelf)))
+        print(L.HELP_PETS:format(tostring(GzLevelUpDB.includePets)))
         print(L.HELP_TEST)
     end
 end

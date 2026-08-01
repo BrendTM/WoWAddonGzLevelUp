@@ -5,6 +5,8 @@
 ## Author: BrendTM
 ## Version: 1.0
 ## SavedVariables: GzLevelUpDB
+## X-Website: https://github.com/BrendTM/WoWAddonGzLevelUp
+## X-CurseForge: https://www.curseforge.com/wow/addons/gzlevelup
 
 Locale.lua
 GzLevelUp.lua
