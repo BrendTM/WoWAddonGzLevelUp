@@ -18,18 +18,26 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
 
 ## Features
 
-- **Automatic level-up congratulations** — posts your message to the correct
-  channel automatically (party or raid) when a group member gains a level.
+- **Automatic level-up congratulations** — posts your message to party chat the
+  moment a group member gains a level (raid chat is opt-in).
 - **Smart detection** — only fires on real level-ups, never when a member joins
   the group or comes into range.
 - **Separate self message** — optionally announce your own "ding" with a
   different text (opt-in).
+- **Pets and companions** (opt-in) — congratulate a hunter's or warlock's pet
+  too, with its own message and an `{owner}` placeholder.
 - **Customizable messages** with placeholders `{name}` and `{level}`.
-- **Optional send delay** (opt-in) — a configurable 0–60 s pause before sending.
+- **Per-category delay** — each of the three announcement types has its own
+  0–60 s pause before sending (`0` = immediately).
 - **Movable quick-button panel** (opt-in) — a floating panel with two buttons
   (**gz** / **ty**) that post to your group with one click. Configurable button
   texts, remembered position, and a size slider (50–200 %).
-- **In-game config window** (`/gz`) with a live preview.
+- **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
+  "gz" and then thank them all in a single "ty", naming everyone.
+- **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
+  unless you allow it.
+- **In-game config window** (`/gz`) — five tabs, live preview, auto-save, and it
+  remembers where you dragged it.
 - **Localization** — English by default, German included automatically on
   German clients.
 - **Tiny footprint** — no dependencies, no background polling.
@@ -88,19 +96,35 @@ box with sensible defaults.
 | `/gz msg <text>` | Set the message for group members |
 | `/gz selfmsg <text>` | Set the message for your own level-up |
 | `/gz self` | Toggle announcing your own level-up |
-| `/gz delay <sec>` | Delay before sending (`0` or `off` disables it) |
+| `/gz petmsg <text>` | Set the message for a pet's level-up |
+| `/gz group` | Toggle announcing group members |
+| `/gz raid` | Toggle using raid chat (off by default) |
+| `/gz reply` | Toggle the auto reply after your own level-up |
+| `/gz pets` | Toggle announcing pets and companions |
+| `/gz delay <sec>` | Set the delay for all three categories (`0` = immediately) |
+| `/gz delay <group\|self\|pets> <sec>` | Set the delay for one category |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
 | `/gz test` | Preview your current messages (nothing is sent) |
 
 ### Placeholders
 
-Use these in any message:
+In the three level-up messages:
 
-- **`{name}`** → the leveling player's name
+- **`{name}`** → the name of whoever levelled up (player or pet)
 - **`{level}`** → their new level
+- **`{owner}`** → the pet's owner — only meaningful in the pet message
 
 Example: `Gz {name}, welcome to level {level}!`
+Pet example: `Gz {owner}'s {name}!`
+
+In the auto-reply message:
+
+- **`{names}`** → everyone who congratulated you, comma separated
+- **`{name}`** → the first one
+- **`{count}`** → how many there were
+
+Example: `ty {names}!`
 
 ---
 
@@ -121,11 +145,30 @@ block.
 │   ├── GzLevelUp.toc
 │   ├── Locale.lua        # localization (enUS + deDE)
 │   └── GzLevelUp.lua     # core logic + config UI + quick panel
+├── tests/                # test suite (not shipped with the addon)
+│   ├── harness.lua       # stubbed WoW API
+│   └── run.lua           # the tests
 ├── media/                # logo assets (not shipped with the addon)
 ├── CURSEFORGE.md         # CurseForge project description
 ├── LICENSE
 └── README.md
 ```
+
+---
+
+## Tests
+
+The suite loads the real addon against a stubbed WoW API, drives it through
+events (`UNIT_LEVEL`, `CHAT_MSG_PARTY`, …) and asserts on what it would have
+said in chat. No game client needed:
+
+```bash
+lua5.1 tests/run.lua
+```
+
+WoW Classic embeds Lua 5.1, so that is the version CI runs. Any Lua ≥ 5.1 works
+locally. The suite exits non-zero on failure and gates both the `test` workflow
+(every push) and the `release` workflow (tags).
 
 ---
 

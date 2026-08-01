@@ -10,24 +10,29 @@ Lightweight, fully configurable, and built for WoW Classic / Anniversary realms.
 
 ## Features
 
-- **Automatic level-up congratulations** — when anyone in your group gains a
-  level, GzLevelUp posts your message to the correct channel automatically
-  (party or raid).
+- **Automatic level-up congratulations** — when someone in your group gains a
+  level, GzLevelUp posts your message to party chat.
 - **Smart detection** — congratulations are only sent for real level-ups, never
   when a member simply joins the group or comes into range.
-- **Separate message for your own level-up** — optionally announce your own
-  "ding" with a completely different text (opt-in).
+- **Three independent categories** — group members, your own level-ups, and
+  pets/companions. Each has its own switch, its own message and its own delay.
 - **Customizable messages** with placeholders:
-  - `{name}` — the player's name
+  - `{name}` — who levelled up
   - `{level}` — the new level
-- **Optional send delay** (opt-in) — add a configurable pause (0–60 seconds)
-  before the message is sent, so it feels natural instead of instant.
+  - `{owner}` — the pet's owner (pet message only)
+- **Per-category delay** (0–60 seconds) so a message feels natural instead of
+  instant. `0` sends immediately.
+- **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
+  "gz" and then thank them all in one "ty", naming everyone who congratulated
+  you.
 - **Movable quick-button panel** (opt-in) — a small floating panel with two
   buttons (**gz** / **ty**) that post to your group with a single click. The
   button texts are fully configurable, the panel remembers its position, and
   it can be resized from 50% to 200%.
+- **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
+  unless you allow it.
 - **In-game config window** — set everything up with `/gz`, including a live
-  preview of your messages.
+  preview of your messages. Everything saves itself.
 - **Localization** — English by default, with German included automatically on
   German clients.
 - **Tiny footprint** — no dependencies, minimal memory use, no background
@@ -47,13 +52,53 @@ That's it — the addon works out of the box.
 
 ## Configuration window (`/gz`)
 
-- **Message for group members** — sent when someone else levels up.
-- **Message for your own level-up** — used only when *you* level up (enable the
-  checkbox first).
-- **Delay before sending** — opt-in; set the number of seconds.
-- **Quick-buttons panel** — opt-in; show the floating gz/ty panel, set the two
-  button texts, and adjust the panel size with the slider.
-- **Live preview** for both messages, so you see exactly how they'll look.
+Five tabs, and every change is saved automatically — there is no *Save* button.
+The window is movable and reopens wherever you last dragged it.
+
+**Messages**
+
+Three independent categories, each with its own switch, message and delay:
+
+- **Group members** — when someone else levels up.
+- **My own level-ups** — when *you* level up.
+- **Pets and companions** — when a group member's pet gains a level. Adds the
+  `{owner}` placeholder. Your own pet additionally follows the "my own
+  level-ups" switch.
+
+Each row has a **delay** field on the right: seconds to wait before sending,
+`0` sends immediately. A **live preview** sits under every message.
+
+**Auto reply**
+
+Opt-in. After *your own* level-up the addon listens to group chat. The first
+matching message starts a short collection window, then a single reply thanks
+everyone who congratulated you — so three people saying "gz" get one "ty Alice,
+Bob, Carol!" instead of three separate messages. Nobody congratulates you?
+Nothing is sent.
+
+- **Reply** — the message, with `{names}`, `{name}` and `{count}`.
+- **Counts as congratulations** — comma separated word list. Matching is on word
+  starts, so `gz` also catches "gzzz" but not "Bugzapper".
+- **Wait after the first gz** — how long to keep collecting (default 6 s).
+- **Stop listening after** — give up if nothing arrives (default 30 s).
+
+**Quick panel**
+
+- Show the floating gz/ty panel, set the two button texts, and adjust the panel
+  size with the slider.
+
+**Settings**
+
+- **Addon enabled** — the master switch.
+- **Also use raid chat** — off by default. In a 40-man raid an automatic "gz"
+  per level-up is spam for most people, so the addon stays silent in raids
+  until you switch this on. Applies to everything it sends.
+- **Restore defaults** — resets everything, after a confirmation prompt.
+
+**Info**
+
+Version, author and links to CurseForge and GitHub. WoW cannot open a browser,
+so the link fields are there to be selected and copied with Ctrl+C.
 
 ---
 
@@ -66,7 +111,13 @@ That's it — the addon works out of the box.
 | `/gz msg <text>` | Set the message for group members |
 | `/gz selfmsg <text>` | Set the message for your own level-up |
 | `/gz self` | Toggle announcing your own level-up |
-| `/gz delay <sec>` | Delay before sending (`0` or `off` disables it) |
+| `/gz petmsg <text>` | Set the message for a pet's level-up |
+| `/gz group` | Toggle announcing group members |
+| `/gz pets` | Toggle announcing pets and companions |
+| `/gz raid` | Toggle using raid chat (off by default) |
+| `/gz reply` | Toggle the auto reply after your own level-up |
+| `/gz delay <sec>` | Set the delay for all three categories (`0` = immediately) |
+| `/gz delay <group\|self\|pets> <sec>` | Set the delay for one category |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
 | `/gz test` | Preview your current messages (nothing is sent) |
@@ -75,20 +126,29 @@ That's it — the addon works out of the box.
 
 ## Placeholders
 
-Use these in any message:
+In the three level-up messages:
 
-- **`{name}`** → the leveling player's name
+- **`{name}`** → who levelled up (player or pet)
 - **`{level}`** → their new level
+- **`{owner}`** → the pet's owner — only meaningful in the pet message
 
 Example: `Gz {name}, welcome to level {level}!`
+
+In the auto-reply message:
+
+- **`{names}`** → everyone who congratulated you, comma separated
+- **`{name}`** → the first one
+- **`{count}`** → how many there were
+
+Example: `ty {names}!`
 
 ---
 
 ## Compatibility
 
-Built for the WoW Classic / Anniversary client. It automatically posts to
-**raid** chat when you're in a raid, and to **party** chat otherwise. Nothing is
-sent when you're not in a group.
+Built for the WoW Classic / Anniversary client. Messages go to **party** chat;
+**raid** chat is opt-in via a setting, because an automatic "gz" per level-up is
+spam for most 40-man raids. Nothing is sent when you're not in a group.
 
 ---
 
