@@ -19,6 +19,8 @@ local defaults = {
     petDelay      = 0,
     quickPanelEnabled = false,               -- show floating gz/ty panel?
     quickPanelScale   = 1.0,                 -- panel scale (0.5 - 2.0)
+    minimapEnabled    = false,               -- show the minimap button?
+    minimapAngle      = 210,                 -- its position around the minimap
     gzButtonMessage   = "gz",                -- text of the left button
     tyButtonMessage   = "ty",                -- text of the right button
     -- Auto reply: say "ty" once after people congratulated my own level-up.
@@ -422,6 +424,95 @@ local function UpdateQuickPanel()
     if GzLevelUpDB.quickPanelEnabled then p:Show() else p:Hide() end
 end
 
+-- ---------------------------------------------------------------------------
+-- Minimap button (opt-in)
+-- ---------------------------------------------------------------------------
+local minimapButton
+local ToggleConfig -- defined further down, once the config window exists
+
+-- Distance from the minimap's centre; 80 puts the button just outside the ring.
+local MINIMAP_RADIUS = 80
+
+local function PlaceMinimapButton()
+    if not minimapButton then return end
+    local angle = tonumber(GzLevelUpDB.minimapAngle) or 210
+    local rad = math.rad(angle)
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER",
+        MINIMAP_RADIUS * math.cos(rad), MINIMAP_RADIUS * math.sin(rad))
+end
+
+-- While dragging, convert the cursor position into an angle around the minimap.
+local function DragMinimapButton(self)
+    local cx, cy = Minimap:GetCenter()
+    local scale = Minimap:GetEffectiveScale()
+    local px, py = GetCursorPosition()
+    px, py = px / scale, py / scale
+    GzLevelUpDB.minimapAngle = math.deg(math.atan2(py - cy, px - cx))
+    self:ClearAllPoints()
+    PlaceMinimapButton()
+end
+
+local function CreateMinimapButton()
+    if minimapButton then return minimapButton end
+
+    local b = CreateFrame("Button", "GzLevelUpMinimapButton", Minimap)
+    b:SetSize(31, 31)
+    b:SetFrameStrata("MEDIUM")
+    b:SetFrameLevel(8)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:RegisterForDrag("LeftButton")
+    b:SetMovable(true)
+
+    local icon = b:CreateTexture(nil, "BACKGROUND")
+    icon:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\icon")
+    icon:SetSize(20, 20)
+    icon:SetPoint("CENTER", -1, 1)
+    -- Trim the logo's rounded corners so it sits better inside the round ring.
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    local border = b:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT")
+
+    b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+
+    b:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", DragMinimapButton)
+    end)
+    b:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    b:SetScript("OnClick", function(_, button)
+        if button == "RightButton" then
+            GzLevelUpDB.quickPanelEnabled = not GzLevelUpDB.quickPanelEnabled
+            UpdateQuickPanel()
+        else
+            ToggleConfig()
+        end
+    end)
+
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText(ADDON)
+        GameTooltip:AddLine(L.MINIMAP_LEFT, 1, 1, 1)
+        GameTooltip:AddLine(L.MINIMAP_RIGHT, 1, 1, 1)
+        GameTooltip:AddLine(L.MINIMAP_DRAG, 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    minimapButton = b
+    PlaceMinimapButton()
+    return b
+end
+
+local function UpdateMinimapButton()
+    local b = CreateMinimapButton()
+    if GzLevelUpDB.minimapEnabled then b:Show() else b:Hide() end
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -446,6 +537,7 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2)
         SyncGroup()
         if event == "PLAYER_ENTERING_WORLD" then
             UpdateQuickPanel()
+            UpdateMinimapButton()
         end
     end
 end)
@@ -893,11 +985,18 @@ local function BuildConfig()
         GzLevelUpDB.useRaidChat = self:GetChecked() and true or false
     end)
 
+    local minimapCB = CreateCheck(settingsPage, L.OPT_MINIMAP)
+    minimapCB:SetPoint("TOPLEFT", 26, -60)
+    minimapCB:SetScript("OnClick", function(self)
+        GzLevelUpDB.minimapEnabled = self:GetChecked() and true or false
+        UpdateMinimapButton()
+    end)
+
     -- The reset button lives here too; it is wired up further down, once the
     -- confirmation popup and LoadValues() exist.
     local resetBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
     resetBtn:SetSize(160, 24)
-    resetBtn:SetPoint("TOPLEFT", 30, -74)
+    resetBtn:SetPoint("TOPLEFT", 30, -104)
     resetBtn:SetText(L.BTN_RESET)
 
     -- === Tab 5: info ======================================================
@@ -1031,6 +1130,7 @@ local function BuildConfig()
         end
         enabledCB:SetChecked(GzLevelUpDB.enabled)
         raidCB:SetChecked(GzLevelUpDB.useRaidChat)
+        minimapCB:SetChecked(GzLevelUpDB.minimapEnabled)
 
         replyCB:SetChecked(GzLevelUpDB.autoReplyEnabled)
         replyEdit:SetText(GzLevelUpDB.replyMessage)
@@ -1071,6 +1171,8 @@ local function BuildConfig()
                 RestorePos(quickPanel, "quickPanelPos")
             end
             RestorePos(frame, "configPos")
+            UpdateMinimapButton()
+            PlaceMinimapButton()
             LoadValues()
             print(PREFIX .. L.MSG_RESET)
         end,
@@ -1086,7 +1188,8 @@ local function BuildConfig()
     return frame
 end
 
-local function ToggleConfig()
+-- Assigned to the forward declaration near the minimap button.
+function ToggleConfig()
     local frame = BuildConfig()
     if frame:IsShown() then
         frame:Hide()
@@ -1172,6 +1275,10 @@ SlashCmdList.GZLEVELUP = function(msg)
             end
             print(PREFIX .. L.DELAY_SET:format(tostring(n)))
         end
+    elseif cmd == "minimap" then
+        GzLevelUpDB.minimapEnabled = not GzLevelUpDB.minimapEnabled
+        UpdateMinimapButton()
+        print(PREFIX .. L.MINIMAP_SET:format(tostring(GzLevelUpDB.minimapEnabled)))
     elseif cmd == "panel" then
         GzLevelUpDB.quickPanelEnabled = not GzLevelUpDB.quickPanelEnabled
         UpdateQuickPanel()
@@ -1210,6 +1317,7 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_DELAY)
         print(L.HELP_DELAY_ONE)
         print(L.HELP_PANEL)
+        print(L.HELP_MINIMAP:format(tostring(GzLevelUpDB.minimapEnabled)))
         print(L.HELP_SCALE)
         print(L.HELP_REPLY:format(tostring(GzLevelUpDB.autoReplyEnabled)))
         print(L.HELP_RAID:format(tostring(GzLevelUpDB.useRaidChat)))
