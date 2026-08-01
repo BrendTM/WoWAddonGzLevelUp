@@ -3,7 +3,7 @@
 ## Notes: Automatically posts "gz" to party/raid chat when a group member levels up.
 ## Notes-deDE: Schreibt automatisch "gz" in den Gruppen-/Raidchat, wenn ein Gruppenmitglied aufsteigt.
 ## Author: BrendTM
-## Version: 1.0
+## Version: 1.1
 ## IconTexture: Interface\AddOns\GzLevelUp\icon
 ## SavedVariables: GzLevelUpDB
 ## X-Website: https://github.com/BrendTM/WoWAddonGzLevelUp
