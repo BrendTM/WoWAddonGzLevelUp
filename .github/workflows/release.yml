@@ -9,6 +9,8 @@
 # too (v1.1). The tag name is written into the addon's .toc (## Version:) and
 # used to name the zip: GzLevelUp-1.1.zip
 #
+# The test suite runs first; a failing tag produces no release.
+#
 # Outputs:
 #   * a GitHub Release for the tag with the zip attached as an asset
 
@@ -35,6 +37,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Gate the release on the test suite: a tag must never ship a build that
+      # does not pass. Same commands as .github/workflows/test.yml.
+      - name: Install Lua
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 lua5.4
+
+      - name: Syntax check (strict)
+        run: luac5.4 -p GzLevelUp/*.lua tests/*.lua
+
+      - name: Run test suite
+        run: lua5.1 tests/run.lua
 
       - name: Derive version
         id: version
