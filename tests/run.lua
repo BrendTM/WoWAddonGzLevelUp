@@ -31,6 +31,19 @@ local function levelUp(unit)
     fire("UNIT_LEVEL", unit)
 end
 
+-- Kill / resurrect a unit. The game announces both through UNIT_HEALTH.
+local function die(unit)
+    world[unit].dead = true
+    fire("UNIT_HEALTH", unit)
+end
+
+local function revive(...)
+    for _, unit in ipairs({ ... }) do
+        world[unit].dead = false
+        fire("UNIT_HEALTH", unit)
+    end
+end
+
 fire("ADDON_LOADED", "GzLevelUp")
 fire("GROUP_ROSTER_UPDATE")
 
@@ -250,6 +263,180 @@ check("replies in raid once allowed", lastSent(), "ty Alice!")
 check("reply goes to RAID", sent[#sent].chan, "RAID")
 inRaid = false
 
+section("death reply: off by default")
+GzLevelUpDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+world.player.dead, world.party1.dead, world.party2.dead, world.party3.dead =
+    false, false, false, false
+fire("GROUP_ROSTER_UPDATE") -- records everyone as alive
+check("member deaths off by default", GzLevelUpDB.announceDeaths, false)
+check("own death off by default", GzLevelUpDB.announceSelfDeath, false)
+check("wipe line off by default", GzLevelUpDB.announceWipe, false)
+check("default names one member", GzLevelUpDB.deathMessage, "F {name}")
+reset(); die("party1")
+check("nothing happens while it is off", #timers, 0)
+
+section("death reply: a single death")
+GzLevelUpDB.announceDeaths = true
+reset(); fire("UNIT_HEALTH", "party1")
+check("death queues the collect timer", #timers, 1)
+check("collect timer is 3s", timers[1].sec, 3)
+check("nothing sent before it fires", lastSent(), nil)
+runTimers()
+check("death announced", lastSent(), "F Alice")
+
+section("death reply: deaths are batched into one message")
+-- Batching is about *when* one message is sent, not about how many names it
+-- carries. With the default "F {name}" a batch renders as the first of them;
+-- the rest still count (towards the wipe threshold) but are not named.
+revive("party1", "party2")
+reset(); die("party1"); die("party2")
+check("both deaths share one timer", #timers, 1)
+runTimers()
+check("the default names only the first", lastSent(), "F Alice")
+check("exactly one message sent", #sent, 1)
+
+-- {names} is what turns the batch into a list.
+GzLevelUpDB.deathMessage = "F {names}"
+revive("party1", "party2")
+reset(); die("party1"); die("party2")
+runTimers()
+check("{names} lists everyone", lastSent(), "F Alice, Bob")
+check("still exactly one message", #sent, 1)
+
+section("death reply: a wipe")
+revive("party1", "party2", "party3")
+reset(); die("party1"); die("party2"); die("party3")
+runTimers()
+check("silent while the wipe line is off", lastSent(), nil)
+
+GzLevelUpDB.announceWipe = true
+revive("party1", "party2", "party3")
+reset(); die("party1"); die("party2"); die("party3")
+runTimers()
+check("wipe line replaces the single deaths", lastSent(), "Wipe.")
+check("exactly one message sent", #sent, 1)
+
+GzLevelUpDB.deathWipeLimit = 0
+GzLevelUpDB.deathMessage = "F {names}" -- spelled out: all three have to show up
+revive("party1", "party2", "party3")
+reset(); die("party1"); die("party2"); die("party3")
+runTimers()
+check("threshold 0 never counts as a wipe", lastSent(), "F Alice, Bob, Carol")
+GzLevelUpDB.deathWipeLimit = 3
+
+section("death reply: my own death")
+GzLevelUpDB.announceSelfDeath = true
+world.player.dead = true
+reset(); fire("PLAYER_DEAD")
+runTimers()
+check("own death announced", lastSent(), "F")
+
+world.player.dead = false
+fire("PLAYER_ALIVE")
+world.player.dead = true
+reset(); fire("PLAYER_DEAD"); fire("UNIT_HEALTH", "player")
+runTimers()
+check("reported twice, announced once", #sent, 1)
+world.player.dead = false
+fire("PLAYER_UNGHOST")
+
+-- My own death counts towards the wipe threshold even though it has its own
+-- message, so "two of them plus me" is still a wipe.
+revive("party1", "party2")
+world.player.dead = true
+reset(); die("party1"); die("party2"); fire("PLAYER_DEAD")
+runTimers()
+check("my death counts towards the wipe", lastSent(), "Wipe.")
+check("only the wipe line is sent", #sent, 1)
+world.player.dead = false
+fire("PLAYER_ALIVE")
+
+section("death reply: what is not a death")
+revive("party1")
+world.party1.dead, world.party1.feign = true, true
+reset(); fire("UNIT_HEALTH", "party1")
+check("feign death does not count", #timers, 0)
+world.party1.feign = false
+
+revive("party1")
+reset(); fire("UNIT_HEALTH", "party1")
+check("a living unit does not count", #timers, 0)
+reset(); die("party1"); fire("UNIT_HEALTH", "party1")
+check("staying dead only counts once", #timers, 1)
+runTimers() -- close the batch; reset() below would drop its timer
+
+reset(); fire("UNIT_HEALTH", "target")
+check("non-group token ignored", #timers, 0)
+revive("party1")
+reset(); die("partypet1")
+check("a dying pet is not announced", #timers, 0)
+
+section("death reply: a corpse that was already there")
+GzLevelUpDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+world.party1.dead = true -- dead before we ever saw them
+fire("GROUP_ROSTER_UPDATE")
+GzLevelUpDB.announceDeaths = true
+reset(); fire("UNIT_HEALTH", "party1")
+check("a corpse we never saw alive stays silent", #timers, 0)
+
+section("death reply: delay and raid chat")
+revive("party1")
+GzLevelUpDB.deathDelay = 5
+reset(); die("party1")
+runTimers() -- collect window closes and queues the delayed send
+check("nothing sent yet", lastSent(), nil)
+check("delay timer queued", timers[1] and timers[1].sec, 5)
+runTimers()
+check("arrives after the delay", lastSent(), "F Alice")
+GzLevelUpDB.deathDelay = 0
+
+inRaid = true
+revive("party1")
+reset(); die("party1")
+check("silent in raid by default", #timers, 0)
+
+-- That death is gone for good: it happened while the addon had no channel, so
+-- it takes a fresh one to see anything.
+GzLevelUpDB.useRaidChat = true
+revive("party1")
+reset(); die("party1")
+runTimers()
+check("announces in raid once allowed", lastSent(), "F Alice")
+check("uses the RAID channel", sent[#sent].chan, "RAID")
+inRaid = false
+
+section("death reply: placeholders and slash commands")
+GzLevelUpDB.deathMessage = "{name} died at {level}, {count} down"
+revive("party1", "party2")
+reset(); die("party1"); die("party2")
+runTimers()
+check("{name}/{level}/{count}", lastSent(), "Alice died at " .. world.party1.level .. ", 2 down")
+
+slash("death")
+check("death toggles off", GzLevelUpDB.announceDeaths, false)
+slash("death")
+check("death toggles back on", GzLevelUpDB.announceDeaths, true)
+slash("selfdeath")
+check("selfdeath toggles on", GzLevelUpDB.announceSelfDeath, true)
+slash("selfdeath")
+check("selfdeath toggles back off", GzLevelUpDB.announceSelfDeath, false)
+slash("wipe")
+check("wipe toggles on", GzLevelUpDB.announceWipe, true)
+slash("wipemsg Wiped with {count}")
+check("wipemsg set", GzLevelUpDB.wipeMessage, "Wiped with {count}")
+slash("deathmsg F {names}")
+check("deathmsg set", GzLevelUpDB.deathMessage, "F {names}")
+slash("delay wipe 4")
+check("delay wipe 4", GzLevelUpDB.wipeDelay, 4)
+check("other delays untouched", GzLevelUpDB.deathDelay, 0)
+slash("delay 2")
+check("delay all reaches deaths", GzLevelUpDB.deathDelay, 2)
+check("delay all reaches own death", GzLevelUpDB.selfDeathDelay, 2)
+check("delay all reaches the wipe", GzLevelUpDB.wipeDelay, 2)
+check("delay all still reaches level-ups", GzLevelUpDB.groupDelay, 2)
+
 section("addon metadata (feeds the info tab)")
 local meta = GetAddOnMetadata
 check("version present", type(meta("GzLevelUp", "Version")), "string")
@@ -303,6 +490,33 @@ if tga then
     check("height 64", byte(head, 15) + byte(head, 16) * 256, 64)
     check("32 bit with alpha", byte(head, 17), 32)
 end
+
+section("config window sizing")
+-- Each tab is only as wide as its own label, so a longer translation makes the
+-- bar longer. If the window kept a fixed width the last tab would hang out
+-- through the frame border, which is exactly what German did. The bar measures
+-- itself instead and stretches the window.
+--
+-- This reloads the addon, so it has to stay the last section: the reload
+-- replaces the event handler and the slash command everything above captured.
+local function configWidth(locale)
+    GetLocale = function() return locale end
+    harness.loadAddon(here .. "/..")
+    GzLevelUpDB = {}
+    fire("ADDON_LOADED", "GzLevelUp")
+    SlashCmdList.GZLEVELUP("")  -- opening the window is what builds it
+    return GzLevelUpConfigFrame:GetWidth(), GzLevelUpConfigFrame:GetHeight()
+end
+
+local enWidth, enHeight = configWidth("enUS")
+local deWidth, deHeight = configWidth("deDE")
+check("English keeps the minimum width", enWidth, 500)
+check("German is wider than English", deWidth > enWidth, true)
+-- The harness approximates font metrics, so the exact pixel is meaningless -
+-- that the window follows the labels at all is the point.
+check("German still fits a sane window", deWidth < 800, true)
+check("height is unaffected", enHeight, 430)
+check("height is the same in German", deHeight, enHeight)
 
 print(string.format("\n%d checks, %d failed", total, fails))
 os.exit(fails == 0 and 0 or 1)

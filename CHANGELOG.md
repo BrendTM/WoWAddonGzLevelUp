@@ -4,6 +4,53 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.2
+
+The addon now reacts to deaths as well — completely opt-in, nothing changes
+until you switch it on.
+
+### New
+
+- **Death reply tab** (opt-in) — post a message when a group member dies, when
+  *you* die, or when the whole group wipes. Each of the three has its own
+  switch, its own text and its own 0–60 s delay, exactly like the level-up
+  messages.
+- **Deaths are collected, not spammed.** Deaths rarely come alone, so they are
+  gathered for a moment (3 s by default) and answered with a *single* message
+  instead of one line per corpse. Out of the box that message is `F {name}`;
+  swap in `{names}` and it lists everyone who died: `F Alice, Bob`.
+- **Wipe handling.** Once as many people die at once as the wipe threshold
+  (3 by default), the individual messages are dropped and only the wipe line is
+  posted — or nothing at all, if you leave that line switched off. Set the
+  threshold to 0 to never treat anything as a wipe.
+- New placeholders in the death messages: `{names}` (everyone who died),
+  `{count}` (how many), plus the familiar `{name}` and `{level}`.
+- A hunter feigning death is not a death, and a corpse that was already on the
+  floor when you joined is not announced either.
+- A thank-you on the info tab, right under the author: **Nuiti**, for the ideas.
+
+### New commands
+
+| Command | Description |
+|---|---|
+| `/gz death` | Toggle announcing a group member's death |
+| `/gz selfdeath` | Toggle announcing your own death |
+| `/gz wipe` | Toggle the wipe message |
+| `/gz deathmsg`, `/gz selfdeathmsg`, `/gz wipemsg` `<text>` | Set the three death messages |
+| `/gz delay <death\|selfdeath\|wipe> <sec>` | Set the delay for one of them |
+
+### Changed
+
+- The config window grew a sixth tab and is a little larger to fit it. It now
+  also **sizes itself to the tab labels**, so a translation with longer words no
+  longer pushes the last tab out through the frame border.
+- **The German translation was reworked.** It finally uses real umlauts
+  (*Verzögerung* instead of *Verzoegerung*), speaks the game's own vocabulary
+  (*Begleiter* instead of *Tiere*, *Levelaufstieg* instead of *Aufstieg*), and
+  the quick panel is called *Quick-Panel* everywhere instead of switching
+  between two names. The default messages are no longer translated separately —
+  German and English clients start from the same "Gz", "ty" and "F".
+
 ## 1.1
 
 The config window has been rebuilt from the ground up, and the addon can now do

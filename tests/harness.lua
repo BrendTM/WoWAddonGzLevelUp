@@ -8,7 +8,7 @@
 -- Exposed to the tests (globals, so run.lua can use them directly):
 --   sent      - list of { msg, chan } that reached SendChatMessage
 --   timers    - queued C_Timer.After callbacks, { sec, fn }
---   world     - the simulated group; edit levels here
+--   world     - the simulated group; edit levels and dead/feign flags here
 --   inRaid    - flips IsInRaid()
 --   fire()    - deliver an event to the addon
 --   runTimers() - run every queued timer callback
@@ -26,6 +26,7 @@ world = {
     party1    = { name = "Alice",   guid = "G-alice",  level = 40, exists = true },
     partypet1 = { name = "Fluffy",  guid = "G-fluffy", level = 39, exists = true },
     party2    = { name = "Bob",     guid = "G-bob",    level = 41, exists = true },
+    party3    = { name = "Carol",   guid = "G-carol",  level = 42, exists = true },
 }
 
 -- --- Unit API --------------------------------------------------------------
@@ -33,6 +34,10 @@ function UnitExists(u) return world[u] ~= nil and world[u].exists end
 function UnitGUID(u)   return world[u] and world[u].guid end
 function UnitLevel(u)  return world[u] and world[u].level end
 function UnitName(u)   return world[u] and world[u].name end
+
+-- Death state. Tests set world.<unit>.dead / .feign and then fire UNIT_HEALTH.
+function UnitIsDeadOrGhost(u) return world[u] ~= nil and world[u].dead == true end
+function UnitIsFeignDeath(u)  return world[u] ~= nil and world[u].feign == true end
 function IsInGroup()   return true end
 function IsInRaid()    return inRaid end
 function GetLocale()   return "enUS" end
@@ -48,7 +53,7 @@ function tinsert(t, v) table.insert(t, v) end
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function StaticPopup_Show() end
 
-UIParent, StaticPopupDialogs, SlashCmdList = {}, {}, {}
+UIParent, StaticPopupDialogs, SlashCmdList, UISpecialFrames = {}, {}, {}, {}
 -- The minimap button anchors to this and reads the cursor while dragging.
 Minimap = setmetatable({
     GetCenter = function() return 100, 100 end,
@@ -63,23 +68,61 @@ C_Timer = {
 }
 
 -- Frames are inert: every method is a no-op that hands back another stub, so
--- chains like button:CreateTexture():SetTexture() keep working. The one
--- exception is SetScript("OnEvent"), which is captured so tests can deliver
--- events.
+-- chains like button:CreateTexture():SetTexture() keep working.
+--
+-- Three groups of methods are real, because the addon computes with them:
+--   SetScript("OnEvent") - captured so tests can deliver events
+--   SetText/GetStringWidth - so label-driven layout can be measured
+--   SetWidth/SetHeight/SetSize/GetWidth/GetHeight - so a frame that sizes
+--   itself from its children can be asserted on
+--
+-- The string width is an approximation, not the game's font metrics: a fixed
+-- pixels-per-character, counting UTF-8 characters rather than bytes so umlauts
+-- do not count double. Good enough to tell "German is wider than English"
+-- apart, not good enough to predict an exact pixel.
+local PX_PER_CHAR = 6
+
+local function utf8len(s)
+    local n = 0
+    for _ in tostring(s):gmatch("[^\128-\191]") do n = n + 1 end
+    return n
+end
+
+-- Anything not in `real` yields another stub. That stub is both callable and
+-- indexable, so a method call (frame:SetPoint(...)) and a sub-widget lookup
+-- (slider.Low:SetText(...)) both work without knowing which one the addon meant.
 local function frameStub()
-    return setmetatable({}, {
-        __index = function(_, key)
-            if key == "SetScript" then
-                return function(_, script, fn)
-                    if script == "OnEvent" then handler = fn end
-                end
-            end
-            return function() return frameStub() end
+    local self = { _w = 0, _h = 0, _text = "", _children = {} }
+    local real = {
+        SetScript = function(_, script, fn)
+            if script == "OnEvent" then handler = fn end
+        end,
+        SetText   = function(o, s) o._text = s or "" end,
+        GetText   = function(o) return o._text end,
+        SetWidth  = function(o, w) o._w = w end,
+        SetHeight = function(o, h) o._h = h end,
+        SetSize   = function(o, w, h) o._w, o._h = w, h end,
+        GetWidth  = function(o) return o._w end,
+        GetHeight = function(o) return o._h end,
+        GetStringWidth = function(o) return utf8len(o._text) * PX_PER_CHAR end,
+    }
+    return setmetatable(self, {
+        __call  = function() return frameStub() end,
+        __index = function(o, key)
+            if real[key] then return real[key] end
+            if o._children[key] == nil then o._children[key] = frameStub() end
+            return o._children[key]
         end,
     })
 end
 
-function CreateFrame() return frameStub() end
+-- Named frames land in _G, the same way the game does it, so a test can reach
+-- the config window as GzLevelUpConfigFrame.
+function CreateFrame(_, name)
+    local f = frameStub()
+    if name then _G[name] = f end
+    return f
+end
 
 -- --- Test controls ---------------------------------------------------------
 
