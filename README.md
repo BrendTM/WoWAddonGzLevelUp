@@ -34,11 +34,15 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
   texts, remembered position, and a size slider (50–200 %).
 - **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
   "gz" and then thank them all in a single "ty", naming everyone.
+- **Death reply** (opt-in) — say something when a group member dies, when you
+  die, or when the group wipes. Deaths are collected for a moment and answered
+  with one message naming everyone, and a wipe gets its own line instead of a
+  flood of them (or nothing at all, if you leave that line off).
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
 - **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
   opens the settings, right-click toggles the quick panel.
-- **In-game config window** (`/gz`) — five tabs, live preview, auto-save, and it
+- **In-game config window** (`/gz`) — six tabs, live preview, auto-save, and it
   remembers where you dragged it.
 - **Localization** — English by default, German included automatically on
   German clients.
@@ -48,7 +52,7 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
 
 ## Screenshots
 
-The config window (<code>/gz</code>) is split across five tabs:
+The config window (<code>/gz</code>) is split across six tabs:
 
 <table>
   <tr>
@@ -120,8 +124,14 @@ box with sensible defaults.
 | `/gz raid` | Toggle using raid chat (off by default) |
 | `/gz reply` | Toggle the auto reply after your own level-up |
 | `/gz pets` | Toggle announcing pets and companions |
-| `/gz delay <sec>` | Set the delay for all three categories (`0` = immediately) |
-| `/gz delay <group\|self\|pets> <sec>` | Set the delay for one category |
+| `/gz death` | Toggle announcing a group member's death |
+| `/gz selfdeath` | Toggle announcing your own death |
+| `/gz wipe` | Toggle the wipe message |
+| `/gz deathmsg <text>` | Set the message for a group member's death |
+| `/gz selfdeathmsg <text>` | Set the message for your own death |
+| `/gz wipemsg <text>` | Set the wipe message |
+| `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
+| `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe> <sec>` | Set the delay for one category |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
@@ -145,6 +155,43 @@ In the auto-reply message:
 - **`{count}`** → how many there were
 
 Example: `ty {names}!`
+
+In the three death messages:
+
+- **`{names}`** → everyone who died in this batch, comma separated
+- **`{name}`** → the first one
+- **`{count}`** → how many there were
+- **`{level}`** → their level
+
+The default is `F {name}` — a line about one member. Put `{names}` in instead
+and a batch becomes a list: `F Alice, Bob`.
+
+Wipe example: `Wipe — {count} down.`
+
+---
+
+## How the death reply decides what to say
+
+Deaths cluster, so the addon waits a moment before saying anything:
+
+1. The first death opens a collection window (3 s by default).
+2. Every further death inside that window joins the same message.
+3. When it closes, one of three things happens:
+   - fewer deaths than the wipe threshold → one message, plus your own separate
+     line if you died too;
+   - at least as many as the threshold → only the wipe message;
+   - …and if the wipe message is switched off, nothing at all.
+
+Note that step 3 sends **one** message either way. With the default `F {name}`
+it names the first of them; use `{names}` if you want all of them listed.
+
+Set the threshold to `0` to never treat anything as a wipe. Deaths are counted
+towards the threshold even when their own message is switched off, so "two of
+them plus me" still registers as a wipe.
+
+A hunter feigning death does not count, and neither does a corpse that was
+already lying there when you joined the group — the addon only reacts to the
+moment somebody goes from alive to dead while it is watching.
 
 ---
 
