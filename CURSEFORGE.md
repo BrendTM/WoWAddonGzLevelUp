@@ -25,6 +25,10 @@ Lightweight, fully configurable, and built for WoW Classic / Anniversary realms.
 - **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
   "gz" and then thank them all in one "ty", naming everyone who congratulated
   you.
+- **Death reply** (opt-in) — say something when a group member dies, when *you*
+  die, or when the group wipes. Deaths are collected for a moment and answered
+  with one message, and a wipe gets its own line instead of a flood of them —
+  or nothing at all, if you leave that line off.
 - **Movable quick-button panel** (opt-in) — a small floating panel with two
   buttons (**gz** / **ty**) that post to your group with a single click. The
   button texts are fully configurable, the panel remembers its position, and
@@ -54,7 +58,7 @@ That's it — the addon works out of the box.
 
 ## Configuration window (`/gz`)
 
-Five tabs, and every change is saved automatically — there is no *Save* button.
+Six tabs, and every change is saved automatically — there is no *Save* button.
 The window is movable and reopens wherever you last dragged it.
 
 **Messages**
@@ -83,6 +87,26 @@ Nothing is sent.
   starts, so `gz` also catches "gzzz" but not "Bugzapper".
 - **Wait after the first gz** — how long to keep collecting (default 6 s).
 - **Stop listening after** — give up if nothing arrives (default 30 s).
+
+**Death reply**
+
+Opt-in, all three of them. Same layout as *Messages*: a switch, a message and a
+delay per line.
+
+- **A group member's death** — someone else in the group dies.
+- **My own death** — you die.
+- **A group wipe** — enough people die at once to call it a wipe.
+
+Deaths rarely come alone, so they are collected for a moment and answered with a
+*single* message rather than one line per corpse.
+
+- **Collect deaths for** — how long to keep gathering (default 3 s).
+- **Counts as a wipe from** — how many deaths make it a wipe (default 3). Reach
+  that many and only the wipe line is sent — or nothing, if you left it off. Set
+  it to `0` to never treat anything as a wipe.
+
+A hunter feigning death is not a death, and a corpse that was already on the
+floor when you joined is not announced either.
 
 **Quick panel**
 
@@ -120,9 +144,16 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz pets` | Toggle announcing pets and companions |
 | `/gz raid` | Toggle using raid chat (off by default) |
 | `/gz reply` | Toggle the auto reply after your own level-up |
-| `/gz delay <sec>` | Set the delay for all three categories (`0` = immediately) |
-| `/gz delay <group\|self\|pets> <sec>` | Set the delay for one category |
+| `/gz death` | Toggle announcing a group member's death |
+| `/gz selfdeath` | Toggle announcing your own death |
+| `/gz wipe` | Toggle the wipe message |
+| `/gz deathmsg <text>` | Set the message for a group member's death |
+| `/gz selfdeathmsg <text>` | Set the message for your own death |
+| `/gz wipemsg <text>` | Set the wipe message |
+| `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
+| `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe> <sec>` | Set the delay for one category |
 | `/gz panel` | Toggle the floating quick-buttons panel |
+| `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
 | `/gz test` | Preview your current messages (nothing is sent) |
 
@@ -145,6 +176,16 @@ In the auto-reply message:
 - **`{count}`** → how many there were
 
 Example: `ty {names}!`
+
+In the three death messages:
+
+- **`{names}`** → everyone who died in this batch, comma separated
+- **`{name}`** → the first one
+- **`{count}`** → how many there were
+- **`{level}`** → their level
+
+The default is `F {name}` — a line about one member. Put `{names}` in instead and
+a batch becomes a list: `F Alice, Bob`.
 
 ---
 

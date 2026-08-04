@@ -67,10 +67,16 @@ The config window (<code>/gz</code>) is split across six tabs:
   </tr>
   <tr>
     <td align="center" valign="top" width="50%">
+      <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab"><br>
+      <sub><b>Death reply</b> — three opt-in lines, a collect window and a wipe threshold</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
       <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
       <sub><b>Quick panel</b> — button texts and panel size</sub>
     </td>
-    <td align="center" valign="top" width="50%">
+  </tr>
+  <tr>
+    <td align="center" valign="top" colspan="2">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
       <sub><b>Settings</b> — master switch, raid chat and minimap button</sub>
     </td>
