@@ -914,8 +914,9 @@ local function BuildConfig()
     if configFrame then return configFrame end
 
     local frame = CreateFrame("Frame", "GzLevelUpConfigFrame", UIParent, "BackdropTemplate")
-    -- Wide enough for six tabs in German, tall enough for the three blocks of
-    -- the death tab plus its two settings rows.
+    -- Tall enough for the three blocks of the death tab plus its two settings
+    -- rows. The width is the minimum: the tab bar below measures itself and
+    -- widens the window if the translated labels need more room.
     frame:SetSize(500, 430)
     frame:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -944,24 +945,27 @@ local function BuildConfig()
     title:SetPoint("TOP", 0, -16)
     title:SetText("GzLevelUp")
 
-    -- Tab bar --------------------------------------------------------------
-    local msgTab = CreateTab(frame, L.TAB_MESSAGES)
-    msgTab:SetPoint("TOPLEFT", 16, -42)
-
-    local replyTab = CreateTab(frame, L.TAB_REPLY)
-    replyTab:SetPoint("LEFT", msgTab, "RIGHT", 6, 0)
-
-    local deathTab = CreateTab(frame, L.TAB_DEATH)
-    deathTab:SetPoint("LEFT", replyTab, "RIGHT", 6, 0)
-
-    local panelTab = CreateTab(frame, L.TAB_PANEL)
-    panelTab:SetPoint("LEFT", deathTab, "RIGHT", 6, 0)
-
-    local settingsTab = CreateTab(frame, L.TAB_SETTINGS)
-    settingsTab:SetPoint("LEFT", panelTab, "RIGHT", 6, 0)
-
-    local infoTab = CreateTab(frame, L.TAB_INFO)
-    infoTab:SetPoint("LEFT", settingsTab, "RIGHT", 6, 0)
+    -- Tab bar ----------------------------------------------------------------
+    -- Every tab is as wide as its own label, so the bar grows with the
+    -- translation - German needs noticeably more room than English. Rather than
+    -- picking a width that happens to fit today, the bar adds itself up and
+    -- stretches the window when the labels do not fit. The pages are anchored
+    -- to both edges, so their contents follow along for free.
+    local TAB_MARGIN, TAB_GAP = 16, 6
+    local tabs, barWidth = {}, TAB_MARGIN * 2
+    for i, label in ipairs({ L.TAB_MESSAGES, L.TAB_REPLY, L.TAB_DEATH,
+                             L.TAB_PANEL, L.TAB_SETTINGS, L.TAB_INFO }) do
+        local tab = CreateTab(frame, label)
+        if i == 1 then
+            tab:SetPoint("TOPLEFT", TAB_MARGIN, -42)
+        else
+            tab:SetPoint("LEFT", tabs[i - 1], "RIGHT", TAB_GAP, 0)
+            barWidth = barWidth + TAB_GAP
+        end
+        barWidth = barWidth + tab:GetWidth()
+        tabs[i] = tab
+    end
+    if barWidth > frame:GetWidth() then frame:SetWidth(barWidth) end
 
     local sep = frame:CreateTexture(nil, "ARTWORK")
     sep:SetTexture(WHITE)
@@ -1276,13 +1280,14 @@ local function BuildConfig()
     copyHint:SetText(L.INFO_COPY_HINT)
 
     -- === Tab switching =====================================================
+    -- Same order as the tab bar above.
     local pages = {
-        { msgTab,      msgPage },
-        { replyTab,    replyPage },
-        { deathTab,    deathPage },
-        { panelTab,    panelPage },
-        { settingsTab, settingsPage },
-        { infoTab,     infoPage },
+        { tabs[1], msgPage },
+        { tabs[2], replyPage },
+        { tabs[3], deathPage },
+        { tabs[4], panelPage },
+        { tabs[5], settingsPage },
+        { tabs[6], infoPage },
     }
 
     local function SelectTab(index)

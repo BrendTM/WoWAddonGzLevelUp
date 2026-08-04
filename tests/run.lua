@@ -491,5 +491,32 @@ if tga then
     check("32 bit with alpha", byte(head, 17), 32)
 end
 
+section("config window sizing")
+-- Each tab is only as wide as its own label, so a longer translation makes the
+-- bar longer. If the window kept a fixed width the last tab would hang out
+-- through the frame border, which is exactly what German did. The bar measures
+-- itself instead and stretches the window.
+--
+-- This reloads the addon, so it has to stay the last section: the reload
+-- replaces the event handler and the slash command everything above captured.
+local function configWidth(locale)
+    GetLocale = function() return locale end
+    harness.loadAddon(here .. "/..")
+    GzLevelUpDB = {}
+    fire("ADDON_LOADED", "GzLevelUp")
+    SlashCmdList.GZLEVELUP("")  -- opening the window is what builds it
+    return GzLevelUpConfigFrame:GetWidth(), GzLevelUpConfigFrame:GetHeight()
+end
+
+local enWidth, enHeight = configWidth("enUS")
+local deWidth, deHeight = configWidth("deDE")
+check("English keeps the minimum width", enWidth, 500)
+check("German is wider than English", deWidth > enWidth, true)
+-- The harness approximates font metrics, so the exact pixel is meaningless -
+-- that the window follows the labels at all is the point.
+check("German still fits a sane window", deWidth < 800, true)
+check("height is unaffected", enHeight, 430)
+check("height is the same in German", deHeight, enHeight)
+
 print(string.format("\n%d checks, %d failed", total, fails))
 os.exit(fails == 0 and 0 or 1)
