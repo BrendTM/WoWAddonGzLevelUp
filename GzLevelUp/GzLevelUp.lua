@@ -1270,13 +1270,23 @@ local function BuildConfig()
     infoAuthor:SetPoint("TOP", 0, -50)
     infoAuthor:SetText(L.INFO_AUTHOR:format(AddonMeta("Author") or L.INFO_UNKNOWN))
 
-    CreateLinkRow(infoPage, -84, L.INFO_CURSEFORGE,
+    -- Whoever the .toc credits, right below the author and in the same font.
+    -- Leave X-Credits empty and the line is not created at all - the rows below
+    -- keep their place either way, so the tab does not jump around.
+    local credits = AddonMeta("X-Credits")
+    if credits and credits ~= "" then
+        local thanks = infoPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        thanks:SetPoint("TOP", 0, -68)
+        thanks:SetText(L.INFO_THANKS:format(credits))
+    end
+
+    CreateLinkRow(infoPage, -96, L.INFO_CURSEFORGE,
         AddonMeta("X-CurseForge") or "")
-    CreateLinkRow(infoPage, -134, L.INFO_GITHUB,
+    CreateLinkRow(infoPage, -146, L.INFO_GITHUB,
         AddonMeta("X-Website") or "")
 
     local copyHint = infoPage:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    copyHint:SetPoint("TOPLEFT", 38, -182)
+    copyHint:SetPoint("TOPLEFT", 38, -194)
     copyHint:SetText(L.INFO_COPY_HINT)
 
     -- === Tab switching =====================================================

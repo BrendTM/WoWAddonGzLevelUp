@@ -33,6 +33,7 @@ L.INFO_CURSEFORGE      = "CurseForge"
 L.INFO_GITHUB          = "GitHub"
 L.INFO_COPY_HINT       = "Click a field and press Ctrl+C to copy."
 L.INFO_UNKNOWN         = "unknown"
+L.INFO_THANKS          = "Ideas and feedback: %s"
 
 L.OPT_AUTOREPLY        = "Reply automatically after my level-up"
 L.REPLY_MESSAGE_LABEL  = "Reply"
@@ -148,6 +149,7 @@ if GetLocale() == "deDE" then
     L.INFO_GITHUB          = "GitHub"
     L.INFO_COPY_HINT       = "Feld anklicken und mit Strg+C kopieren."
     L.INFO_UNKNOWN         = "unbekannt"
+    L.INFO_THANKS          = "Ideen und Feedback: %s"
 
     L.OPT_AUTOREPLY        = "Nach eigenem Levelaufstieg automatisch antworten"
     L.REPLY_MESSAGE_LABEL  = "Antwort"
