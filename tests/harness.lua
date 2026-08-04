@@ -8,7 +8,7 @@
 -- Exposed to the tests (globals, so run.lua can use them directly):
 --   sent      - list of { msg, chan } that reached SendChatMessage
 --   timers    - queued C_Timer.After callbacks, { sec, fn }
---   world     - the simulated group; edit levels here
+--   world     - the simulated group; edit levels and dead/feign flags here
 --   inRaid    - flips IsInRaid()
 --   fire()    - deliver an event to the addon
 --   runTimers() - run every queued timer callback
@@ -26,6 +26,7 @@ world = {
     party1    = { name = "Alice",   guid = "G-alice",  level = 40, exists = true },
     partypet1 = { name = "Fluffy",  guid = "G-fluffy", level = 39, exists = true },
     party2    = { name = "Bob",     guid = "G-bob",    level = 41, exists = true },
+    party3    = { name = "Carol",   guid = "G-carol",  level = 42, exists = true },
 }
 
 -- --- Unit API --------------------------------------------------------------
@@ -33,6 +34,9 @@ function UnitExists(u) return world[u] ~= nil and world[u].exists end
 function UnitGUID(u)   return world[u] and world[u].guid end
 function UnitLevel(u)  return world[u] and world[u].level end
 function UnitName(u)   return world[u] and world[u].name end
+-- Death state. Tests set world.<unit>.dead / .feign and then fire UNIT_HEALTH.
+function UnitIsDeadOrGhost(u) return world[u] ~= nil and world[u].dead == true end
+function UnitIsFeignDeath(u)  return world[u] ~= nil and world[u].feign == true end
 function IsInGroup()   return true end
 function IsInRaid()    return inRaid end
 function GetLocale()   return "enUS" end
