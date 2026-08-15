@@ -6,6 +6,30 @@ it is written for players rather than for the diff.
 
 ## 1.3
 
+### New
+
+- **Rez reply** (opt-in) — the counterpart to the death reply: post a message
+  when a group member is back on their feet, and when somebody got *you* back
+  up. Two more switches, each with its own text and its own 0–60 s delay.
+- **Resurrections are collected too.** They come in clusters just like deaths,
+  so they are gathered for a moment (3 s by default, its own field) and answered
+  with a *single* message. Out of the box that is `wb {name}`; swap in `{names}`
+  and it lists everyone: `wb Alice, Bob`. No threshold anywhere — coming back is
+  never bad news.
+- **Your own line thanks the right person.** It is only sent when another player
+  actually resurrected you and is still in range when you get up, and `{name}`
+  is *them*, so `ty {name}` names your healer. A corpse run says nothing, and
+  neither does the spirit healer — that one drops you at the graveyard, far from
+  whoever offered.
+- New commands: `/gz rez`, `/gz selfrez`, `/gz rezmsg`, `/gz selfrezmsg`, and
+  `rez` / `selfrez` as categories for `/gz delay`.
+
+### Changed
+
+- The **Death reply** tab now holds five lines instead of three and is split
+  into two sub-pages, **Deaths** and **Resurrections**. The window keeps
+  exactly the size it had.
+
 ### Fixed
 
 - **No more "F Unknown" right after joining a group.** When you joined a group

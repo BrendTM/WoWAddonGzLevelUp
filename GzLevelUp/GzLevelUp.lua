@@ -30,6 +30,14 @@ local defaults = {
     wipeDelay         = 0,
     deathCollect      = 3,                    -- batch deaths for this long
     deathWipeLimit    = 3,                    -- that many at once = a wipe
+    -- Resurrection reply: the counterpart, when someone is back on their feet.
+    announceRez       = false,                -- announce a group member's rez?
+    announceSelfRez   = false,                -- announce that I was rezzed?
+    rezMessage        = L.DEFAULT_REZ_MESSAGE,
+    selfRezMessage    = L.DEFAULT_SELF_REZ_MESSAGE,
+    rezDelay          = 0,
+    selfRezDelay      = 0,
+    rezCollect        = 3,                    -- batch resurrections for this long
     quickPanelEnabled = false,               -- show floating gz/ty panel?
     quickPanelScale   = 1.0,                 -- panel scale (0.5 - 2.0)
     minimapEnabled    = false,               -- show the minimap button?
@@ -68,10 +76,20 @@ local DEATH = {
 
 local DEATH_ORDER = { "member", "self", "wipe" }
 
+-- And once more for the resurrection reply. It shares the death tab and the
+-- batching, but not the wipe line: coming back is never bad news.
+local REZ = {
+    member = { enabled = "announceRez",     message = "rezMessage",     delay = "rezDelay"     },
+    self   = { enabled = "announceSelfRez", message = "selfRezMessage", delay = "selfRezDelay" },
+}
+
+local REZ_ORDER = { "member", "self" }
+
 -- Every category there is, for the commands that address all of them at once.
 local ALL_CATEGORIES = {
     CATEGORY.member, CATEGORY.self, CATEGORY.pet,
     DEATH.member,    DEATH.self,    DEATH.wipe,
+    REZ.member,      REZ.self,
 }
 
 -- What the user may type after "/gz delay" to address a single category.
@@ -82,6 +100,8 @@ local DELAY_ALIAS = {
     death     = DEATH.member,    deaths = DEATH.member,
     selfdeath = DEATH.self,
     wipe      = DEATH.wipe,
+    rez       = REZ.member,      rezzes = REZ.member,
+    selfrez   = REZ.self,
 }
 
 local MAX_DELAY = 60
@@ -156,6 +176,13 @@ local function Format(template, name, level, owner, names)
         :gsub("{name}", name or "?")
         :gsub("{level}", tostring(level or 0))
         :gsub("{owner}", owner or "?"))
+end
+
+-- "Brend-Realm" -> "Brend". Cross-realm names arrive with a realm suffix,
+-- both from chat and from a resurrect offer.
+local function ShortName(name)
+    if not name or name == "" then return nil end
+    return name:match("^([^-]+)") or name
 end
 
 -- Remembers where the user dragged a frame to, under the given DB key.
@@ -332,18 +359,24 @@ local function Announce(unit, kind)
 end
 
 -- ---------------------------------------------------------------------------
--- Death reply: react when a group member, or I myself, dies
+-- Death and resurrection reply: react when a group member, or I myself, goes
+-- down — and when someone is back on their feet
 -- ---------------------------------------------------------------------------
 
--- Deaths arrive in clusters, so they are collected for a moment and answered
--- with a single message. `session` invalidates the timer of an earlier batch,
--- since C_Timer.After cannot be cancelled.
-local deaths = {
-    session = 0, open = false,
-    all = {},     -- everyone who died this batch, me included
-    others = {},  -- everyone except me
-    seen = {}, mine = false, level = 0,
-}
+-- Neither comes alone: a pull goes wrong and half the group is on the floor,
+-- then the healer picks them all back up. Both are therefore collected for a
+-- moment and answered with a single message. `session` invalidates the timer
+-- of an earlier batch, since C_Timer.After cannot be cancelled.
+local function NewBatch()
+    return {
+        session = 0, open = false,
+        all = {},     -- everyone in this batch, me included
+        others = {},  -- everyone except me
+        seen = {}, mine = false, who = nil, level = 0,
+    }
+end
+
+local deaths, rezzes = NewBatch(), NewBatch()
 
 local function FlushDeaths(session)
     if deaths.session ~= session then return end
@@ -368,42 +401,124 @@ local function FlushDeaths(session)
     end
 end
 
--- Adds one death to the current batch, opening a new one if needed. Every
--- death is collected regardless of its own switch, so that a death nobody
--- wants announced still counts towards the wipe threshold.
-local function QueueDeath(kind, name, level)
+-- Who offered me the last resurrect, so my own line can thank them by name.
+-- Only another player's spell fires RESURRECT_REQUEST — a spirit healer or a
+-- soulstone does not — which is exactly the line between "somebody got me up"
+-- and "I got myself up".
+local rezOffer = { name = nil, at = 0 }
+local REZ_OFFER_WINDOW = 60 -- the in-game dialog does not last any longer
+
+local function RememberRezOffer(caster)
+    rezOffer.name, rezOffer.at = ShortName(caster), GetTime and GetTime() or 0
+end
+
+-- The group unit token of a player by name, or nil when they are not in the
+-- group at all — a passer-by can pick you up just as well.
+local function GroupUnitByName(name)
+    if not name then return nil end
+    local prefix, count = "party", 4
+    if IsInRaid() then prefix, count = "raid", 40 end
+    for i = 1, count do
+        local unit = prefix .. i
+        if UnitExists(unit) and ShortName(UnitName(unit)) == name then return unit end
+    end
+    return nil
+end
+
+-- Accepting a resurrect puts you back at your corpse, next to whoever cast it;
+-- taking the spirit healer instead puts you at the graveyard, far from them.
+-- So the caster still being in range is what separates the two — the game
+-- itself never tells an addon that an offer was declined.
+--
+-- Only a clear "out of range" counts against it. Someone outside the group
+-- cannot be range-checked at all, and dropping those would cost more than it
+-- saves.
+local function StillNearby(name)
+    if not UnitInRange then return true end
+    local unit = GroupUnitByName(name)
+    if not unit then return true end
+
+    local inRange, checked = UnitInRange(unit)
+    if not checked then return true end
+    return inRange and true or false
+end
+
+-- Hands out the pending offer once: whoever got me up, or nil if nobody did.
+-- An offer that has gone stale, or whose caster is no longer anywhere near,
+-- does not count.
+local function ClaimRezOffer()
+    local who, when = rezOffer.name, rezOffer.at
+    rezOffer.name = nil
+    if not who then return nil end
+    if GetTime and (GetTime() - when) > REZ_OFFER_WINDOW then return nil end
+    if not StillNearby(who) then return nil end
+    return who
+end
+
+local function FlushRezzes(session)
+    if rezzes.session ~= session then return end
+    rezzes.open = false
+    if #rezzes.all == 0 then return end
+
+    -- {name} in my own line is whoever got me up, not me: "ty {name}" is the
+    -- whole point of the line.
+    if rezzes.mine and GzLevelUpDB.announceSelfRez then
+        Dispatch(REZ.self, rezzes.who, UnitLevel("player"))
+    end
+    if #rezzes.others > 0 and GzLevelUpDB.announceRez then
+        Dispatch(REZ.member, rezzes.others[1], rezzes.level, nil, rezzes.others)
+    end
+end
+
+-- Adds one name to a batch, opening a new one if needed. Every death is
+-- collected regardless of its own switch, so that a death nobody wants
+-- announced still counts towards the wipe threshold.
+local function Collect(batch, collectKey, flush, kind, name, level)
     if not GzLevelUpDB.enabled then return end
     if not GroupChannel() then return end
     if not name then return end
 
-    if not deaths.open then
-        deaths.open    = true
-        deaths.session = deaths.session + 1
-        deaths.all, deaths.others, deaths.seen = {}, {}, {}
-        deaths.mine, deaths.level = false, 0
+    if not batch.open then
+        batch.open    = true
+        batch.session = batch.session + 1
+        batch.all, batch.others, batch.seen = {}, {}, {}
+        batch.mine, batch.who, batch.level = false, nil, 0
 
-        local session = deaths.session
-        C_Timer.After(ClampDelay(GzLevelUpDB.deathCollect), function() FlushDeaths(session) end)
+        local session = batch.session
+        C_Timer.After(ClampDelay(GzLevelUpDB[collectKey]), function() flush(session) end)
     end
 
-    if deaths.seen[name] then return end
-    deaths.seen[name] = true
-    deaths.all[#deaths.all + 1] = name
-    if #deaths.all == 1 then deaths.level = level end
-
+    -- My own entry is kept apart from the name list: for a resurrect `name` is
+    -- the person who rezzed me, and that one may well be in the list too.
     if kind == "self" then
-        deaths.mine = true
+        if batch.mine then return end
+        batch.mine, batch.who = true, name
     else
-        deaths.others[#deaths.others + 1] = name
+        if batch.seen[name] then return end
+        batch.seen[name] = true
+        batch.others[#batch.others + 1] = name
     end
+
+    batch.all[#batch.all + 1] = name
+    if #batch.all == 1 then batch.level = level end
 end
 
--- Edge detector on top of the unit API: only alive -> dead is a death, and a
--- resurrect simply clears the flag so the next one counts again.
-local function CheckDeath(unit)
+local function QueueDeath(kind, name, level)
+    Collect(deaths, "deathCollect", FlushDeaths, kind, name, level)
+end
+
+local function QueueRez(kind, name, level)
+    Collect(rezzes, "rezCollect", FlushRezzes, kind, name, level)
+end
+
+-- Edge detector on top of the unit API: alive -> dead is a death, dead -> alive
+-- a resurrect. Both directions run through the same flag, so each of them is
+-- answered exactly once no matter how many events report it.
+local function CheckDeathOrRez(unit)
     -- Cheapest possible exit: UNIT_HEALTH fires constantly during combat.
     if not (GzLevelUpDB.announceDeaths or GzLevelUpDB.announceSelfDeath
-            or GzLevelUpDB.announceWipe) then
+            or GzLevelUpDB.announceWipe or GzLevelUpDB.announceRez
+            or GzLevelUpDB.announceSelfRez) then
         return
     end
     if not unit or not UnitExists(unit) then return end
@@ -419,11 +534,26 @@ local function CheckDeath(unit)
 
     local dead, was = IsDead(unit), knownDead[guid]
     knownDead[guid] = dead
-    -- `was` is nil for a unit we have never seen alive (joined mid-fight),
-    -- and that must not count as a death either.
-    if not dead or was ~= false then return end
+    -- `was` is nil for a unit we have never seen either way (joined mid-fight),
+    -- and neither direction may be answered from a guess.
+    if was == nil or dead == was then return end
 
-    QueueDeath(kind, UnitName(unit), UnitLevel(unit))
+    if dead then
+        -- A fresh corpse of mine invalidates whatever was offered on the old one.
+        if kind == "self" then rezOffer.name = nil end
+        QueueDeath(kind, UnitName(unit), UnitLevel(unit))
+    elseif GzLevelUpDB.announceRez or GzLevelUpDB.announceSelfRez then
+        -- Unlike a death, a resurrect nobody wants announced is not collected
+        -- either: there is no threshold left for it to count towards.
+        if kind == "self" then
+            -- My own comeback is only worth a message when somebody actually
+            -- got me up. Walking back from the graveyard leaves nobody to thank.
+            local who = ClaimRezOffer()
+            if who then QueueRez(kind, who, UnitLevel(unit)) end
+        else
+            QueueRez(kind, UnitName(unit), UnitLevel(unit))
+        end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -441,12 +571,6 @@ local REPLY_EVENTS = {
     CHAT_MSG_RAID         = "RAID",
     CHAT_MSG_RAID_LEADER  = "RAID",
 }
-
--- "Brend-Realm" -> "Brend". Cross-realm names arrive with a realm suffix.
-local function ShortName(name)
-    if not name or name == "" then return nil end
-    return name:match("^([^-]+)") or name
-end
 
 -- Splits the configured trigger list into lowercase words.
 local function TriggerWords()
@@ -721,12 +845,14 @@ f:RegisterEvent("UNIT_PET")
 -- Fires when a unit's data finally arrives, i.e. exactly when SyncGroup was
 -- too early for it.
 f:RegisterEvent("UNIT_NAME_UPDATE")
--- Death detection: UNIT_HEALTH covers the group, the PLAYER_* events cover me
--- (they also fire when nobody's health is being tracked, e.g. after a release).
+-- Death and resurrect detection: UNIT_HEALTH covers the group, the PLAYER_*
+-- events cover me (they also fire when nobody's health is being tracked, e.g.
+-- after a release). RESURRECT_REQUEST tells me who is offering to pick me up.
 f:RegisterEvent("UNIT_HEALTH")
 f:RegisterEvent("PLAYER_DEAD")
 f:RegisterEvent("PLAYER_ALIVE")
 f:RegisterEvent("PLAYER_UNGHOST")
+f:RegisterEvent("RESURRECT_REQUEST")
 for event in pairs(REPLY_EVENTS) do f:RegisterEvent(event) end
 f:SetScript("OnEvent", function(self, event, arg1, arg2)
     if event == "ADDON_LOADED" then
@@ -738,11 +864,13 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2)
     elseif event == "UNIT_LEVEL" then
         OnUnitLevel(arg1)
     elseif event == "UNIT_HEALTH" then
-        CheckDeath(arg1)
+        CheckDeathOrRez(arg1)
+    elseif event == "RESURRECT_REQUEST" then
+        RememberRezOffer(arg1) -- arg1 = who is casting it
     elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
         -- All three run through the same edge detector, so a death that both
         -- UNIT_HEALTH and PLAYER_DEAD report is still announced only once.
-        CheckDeath("player")
+        CheckDeathOrRez("player")
     elseif event == "UNIT_NAME_UPDATE" then
         SyncLateUnit(arg1)
     elseif event == "UNIT_PET" then
@@ -1118,6 +1246,11 @@ local function BuildConfig()
 
     -- === Tab 3: death reply ===============================================
     -- Same three-line blocks as the messages tab, so both read identically.
+    -- Five of them would not fit, so the tab is split into two sub-pages -
+    -- deaths and resurrections are separate concerns anyway, and each of them
+    -- keeps the layout this tab always had. The delay header and the help icon
+    -- belong to both, so they stay on the page itself, sharing the header line
+    -- with the sub-tab row.
     local deathDelayHeader = deathPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     deathDelayHeader:SetPoint("TOPRIGHT", -48, 0)
     deathDelayHeader:SetText(L.DELAY_HEADER)
@@ -1125,61 +1258,118 @@ local function BuildConfig()
     local deathHelp = CreateHelpIcon(deathPage, L.DEATH_HELP_TITLE, L.DEATH_HELP)
     deathHelp:SetPoint("TOPRIGHT", -24, 2)
 
-    local DEATH_LABEL = {
-        member = L.OPT_DEATH_GROUP,
-        self   = L.OPT_DEATH_SELF,
-        wipe   = L.OPT_DEATH_WIPE,
-    }
-
-    local deathBlocks = {}
-    for i, kind in ipairs(DEATH_ORDER) do
-        local cat   = DEATH[kind]
-        local block = CreateCategoryBlock(deathPage, -18 - (i - 1) * BLOCK_HEIGHT, DEATH_LABEL[kind])
-        block.kind = kind
-        deathBlocks[i] = block
+    -- One container per sub-page, both covering the whole tab: only the
+    -- selected one is shown, so both can use the same offsets.
+    local function CreateSubPage()
+        local p = CreateFrame("Frame", nil, deathPage)
+        p:SetAllPoints(deathPage)
+        return p
     end
+    local deathSub, rezSub = CreateSubPage(), CreateSubPage()
 
-    local deathSep = deathPage:CreateTexture(nil, "ARTWORK")
-    deathSep:SetTexture(WHITE)
-    deathSep:SetHeight(1)
-    deathSep:SetPoint("TOPLEFT", 36, -262)
-    deathSep:SetPoint("TOPRIGHT", -32, -262)
-    deathSep:SetVertexColor(1, 1, 1, 0.15)
-
-    local collectDeathRow = CreateSecondsRow(deathPage, -276, L.DEATH_COLLECT_LABEL)
-    local wipeLimitRow    = CreateSecondsRow(deathPage, -304, L.DEATH_WIPE_LABEL, L.DEATH_WIPE_UNIT)
-
-    -- The two rows below the blocks belong to all three categories, so they
-    -- are only greyed out once nothing at all is announced.
-    local function SetDeathTimingEnabled(on)
-        for _, e in ipairs({ collectDeathRow.edit, wipeLimitRow.edit }) do
-            e:EnableMouse(on)
-            if on then
-                e:SetTextColor(1, 1, 1)
-            else
-                e:ClearFocus()
-                e:SetTextColor(0.5, 0.5, 0.5)
-            end
+    -- The sub-tab row shares the header line with the delay column on the
+    -- right, which is what keeps the window the height it has always been.
+    local deathSubTabs = {}
+    for i, label in ipairs({ L.SUBTAB_DEATH, L.SUBTAB_REZ }) do
+        local t = CreateTab(deathPage, label)
+        if i == 1 then
+            t:SetPoint("TOPLEFT", 26, 6)
+        else
+            t:SetPoint("LEFT", deathSubTabs[i - 1], "RIGHT", 6, 0)
         end
-        local r, g, b = 1, 0.82, 0
-        if not on then r, g, b = 0.5, 0.5, 0.5 end
-        collectDeathRow.label:SetTextColor(r, g, b)
-        wipeLimitRow.label:SetTextColor(r, g, b)
+        deathSubTabs[i] = t
     end
 
-    local function AnyDeathEnabled()
-        for _, kind in ipairs(DEATH_ORDER) do
-            if GzLevelUpDB[DEATH[kind].enabled] then return true end
+    local function SelectDeathSub(index)
+        for i, t in ipairs(deathSubTabs) do SetTabActive(t, i == index) end
+        if index == 1 then deathSub:Show() else deathSub:Hide() end
+        if index == 2 then rezSub:Show()   else rezSub:Hide()   end
+    end
+
+    for i, t in ipairs(deathSubTabs) do
+        t:SetScript("OnClick", function() SelectDeathSub(i) end)
+    end
+    SelectDeathSub(1)
+
+    -- A thin line between the blocks of a sub-page and its settings rows.
+    local function CreateSubSep(page, y)
+        local line = page:CreateTexture(nil, "ARTWORK")
+        line:SetTexture(WHITE)
+        line:SetHeight(1)
+        line:SetPoint("TOPLEFT", 36, y)
+        line:SetPoint("TOPRIGHT", -32, y)
+        line:SetVertexColor(1, 1, 1, 0.15)
+        return line
+    end
+
+    -- Every block of both sub-pages in one list, since saving, loading and the
+    -- live preview do not care which page a block sits on. The two flags only
+    -- steer the preview: `meName` is the line that is about me, `oneName` the
+    -- one that never lists more than one person - my own resurrect names
+    -- whoever got me up, and that is always a single player.
+    local deathBlocks = {}
+    local function AddBlocks(page, entries)
+        for i, entry in ipairs(entries) do
+            local block = CreateCategoryBlock(page, -18 - (i - 1) * BLOCK_HEIGHT, entry.label)
+            block.cat = entry.cat
+            block.meName, block.oneName = entry.meName, entry.oneName
+            deathBlocks[#deathBlocks + 1] = block
+        end
+    end
+
+    AddBlocks(deathSub, {
+        { cat = DEATH.member, label = L.OPT_DEATH_GROUP },
+        { cat = DEATH.self,   label = L.OPT_DEATH_SELF, meName = true },
+        { cat = DEATH.wipe,   label = L.OPT_DEATH_WIPE  },
+    })
+    AddBlocks(rezSub, {
+        { cat = REZ.member,   label = L.OPT_REZ_GROUP },
+        { cat = REZ.self,     label = L.OPT_REZ_SELF, oneName = true },
+    })
+
+    CreateSubSep(deathSub, -262)
+    local collectDeathRow = CreateSecondsRow(deathSub, -276, L.DEATH_COLLECT_LABEL)
+    local wipeLimitRow    = CreateSecondsRow(deathSub, -304, L.DEATH_WIPE_LABEL, L.DEATH_WIPE_UNIT)
+
+    CreateSubSep(rezSub, -186)
+    local collectRezRow = CreateSecondsRow(rezSub, -200, L.REZ_COLLECT_LABEL)
+
+    -- Greys a settings row out while its whole group is switched off.
+    local function SetRowEnabled(row, on)
+        row.edit:EnableMouse(on)
+        if on then
+            row.edit:SetTextColor(1, 1, 1)
+            row.label:SetTextColor(1, 0.82, 0)
+        else
+            row.edit:ClearFocus()
+            row.edit:SetTextColor(0.5, 0.5, 0.5)
+            row.label:SetTextColor(0.5, 0.5, 0.5)
+        end
+    end
+
+    -- True while at least one category out of the given table is announced.
+    local function AnyEnabled(group, order)
+        for _, kind in ipairs(order) do
+            if GzLevelUpDB[group[kind].enabled] then return true end
         end
         return false
     end
 
+    -- The rows below each group belong to all of its categories, so they are
+    -- only greyed out once nothing in that group is announced at all.
+    local function SetDeathTimingEnabled()
+        local deathOn = AnyEnabled(DEATH, DEATH_ORDER)
+        SetRowEnabled(collectDeathRow, deathOn)
+        SetRowEnabled(wipeLimitRow, deathOn)
+        SetRowEnabled(collectRezRow, AnyEnabled(REZ, REZ_ORDER))
+    end
+
     for _, block in ipairs(deathBlocks) do
-        local cat = DEATH[block.kind]
+        local cat = block.cat
         block.cb:SetScript("OnClick", function(self)
             GzLevelUpDB[cat.enabled] = self:GetChecked() and true or false
             SetBlockEnabled(block, GzLevelUpDB[cat.enabled])
-            SetDeathTimingEnabled(AnyDeathEnabled())
+            SetDeathTimingEnabled()
         end)
     end
 
@@ -1366,16 +1556,19 @@ local function BuildConfig()
         replyPreview:SetText(L.PREVIEW_LABEL .. " \""
             .. FormatReply(replyEdit:GetText(), sample) .. "\"")
 
-        -- Death preview: one name for a single death, two for the group and
-        -- the wipe line, so {names} and {count} actually show what they do.
+        -- Death preview: two names for the group and the wipe line, so {names}
+        -- and {count} actually show what they do. My own death is about me, and
+        -- my own resurrect about the single person who got me up.
+        local lvl = UnitLevel("player") or 1
         for _, block in ipairs(deathBlocks) do
             local names = sample
-            local name, lvl = L.PREVIEW_NAME_1, UnitLevel("player") or 1
-            if block.kind == "self" then
-                names, name, lvl = { me }, me, UnitLevel("player") or 1
+            if block.meName then
+                names = { me }
+            elseif block.oneName then
+                names = { L.PREVIEW_NAME_1 }
             end
             block.preview:SetText(L.PREVIEW_LABEL .. " \""
-                .. Format(block.edit:GetText(), name, lvl, nil, names) .. "\"")
+                .. Format(block.edit:GetText(), names[1], lvl, nil, names) .. "\"")
         end
     end
 
@@ -1389,12 +1582,12 @@ local function BuildConfig()
             GzLevelUpDB[cat.delay]   = ClampDelay(block.delay:GetText())
         end
         for _, block in ipairs(deathBlocks) do
-            local cat = DEATH[block.kind]
-            GzLevelUpDB[cat.message] = block.edit:GetText()
-            GzLevelUpDB[cat.delay]   = ClampDelay(block.delay:GetText())
+            GzLevelUpDB[block.cat.message] = block.edit:GetText()
+            GzLevelUpDB[block.cat.delay]   = ClampDelay(block.delay:GetText())
         end
         GzLevelUpDB.deathCollect    = ClampDelay(collectDeathRow.edit:GetText())
         GzLevelUpDB.deathWipeLimit  = ClampCount(wipeLimitRow.edit:GetText())
+        GzLevelUpDB.rezCollect      = ClampDelay(collectRezRow.edit:GetText())
         GzLevelUpDB.replyMessage    = replyEdit:GetText()
         GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
         GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
@@ -1421,7 +1614,7 @@ local function BuildConfig()
     end
 
     for _, block in ipairs(blocks)      do WireBlock(block, CATEGORY[block.kind]) end
-    for _, block in ipairs(deathBlocks) do WireBlock(block, DEATH[block.kind])    end
+    for _, block in ipairs(deathBlocks) do WireBlock(block, block.cat)            end
 
     replyEdit:SetScript("OnTextChanged", UpdatePreview)
 
@@ -1438,6 +1631,7 @@ local function BuildConfig()
         { windowRow,       "replyWindow" },
         { collectDeathRow, "deathCollect" },
         { wipeLimitRow,    "deathWipeLimit" },
+        { collectRezRow,   "rezCollect" },
     }) do
         local edit, key = row[1].edit, row[2]
         edit:SetScript("OnEditFocusLost", function(self)
@@ -1462,11 +1656,10 @@ local function BuildConfig()
             SetBlockEnabled(block, on)
         end
         for _, block in ipairs(deathBlocks) do
-            local cat = DEATH[block.kind]
-            local on  = GzLevelUpDB[cat.enabled] and true or false
-            block.edit:SetText(GzLevelUpDB[cat.message])
+            local on = GzLevelUpDB[block.cat.enabled] and true or false
+            block.edit:SetText(GzLevelUpDB[block.cat.message])
             block.edit:SetCursorPosition(0)
-            block.delay:SetText(tostring(ClampDelay(GzLevelUpDB[cat.delay])))
+            block.delay:SetText(tostring(ClampDelay(GzLevelUpDB[block.cat.delay])))
             block.delay:SetCursorPosition(0)
             block.cb:SetChecked(on)
             SetBlockEnabled(block, on)
@@ -1475,7 +1668,9 @@ local function BuildConfig()
         collectDeathRow.edit:SetCursorPosition(0)
         wipeLimitRow.edit:SetText(tostring(ClampCount(GzLevelUpDB.deathWipeLimit)))
         wipeLimitRow.edit:SetCursorPosition(0)
-        SetDeathTimingEnabled(AnyDeathEnabled())
+        collectRezRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.rezCollect)))
+        collectRezRow.edit:SetCursorPosition(0)
+        SetDeathTimingEnabled()
 
         enabledCB:SetChecked(GzLevelUpDB.enabled)
         raidCB:SetChecked(GzLevelUpDB.useRaidChat)
@@ -1613,9 +1808,18 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "wipe" then
         GzLevelUpDB.announceWipe = not GzLevelUpDB.announceWipe
         print(PREFIX .. L.WIPE_SET:format(tostring(GzLevelUpDB.announceWipe)))
-    elseif cmd == "deathmsg" or cmd == "selfdeathmsg" or cmd == "wipemsg" then
+    elseif cmd == "rez" then
+        GzLevelUpDB.announceRez = not GzLevelUpDB.announceRez
+        print(PREFIX .. L.REZ_SET:format(tostring(GzLevelUpDB.announceRez)))
+    elseif cmd == "selfrez" then
+        GzLevelUpDB.announceSelfRez = not GzLevelUpDB.announceSelfRez
+        print(PREFIX .. L.SELF_REZ_SET:format(tostring(GzLevelUpDB.announceSelfRez)))
+    elseif cmd == "deathmsg" or cmd == "selfdeathmsg" or cmd == "wipemsg"
+        or cmd == "rezmsg" or cmd == "selfrezmsg" then
         local key = (cmd == "deathmsg" and "deathMessage")
                  or (cmd == "selfdeathmsg" and "selfDeathMessage")
+                 or (cmd == "rezmsg" and "rezMessage")
+                 or (cmd == "selfrezmsg" and "selfRezMessage")
                  or "wipeMessage"
         if rest ~= "" then
             GzLevelUpDB[key] = rest
@@ -1634,7 +1838,9 @@ SlashCmdList.GZLEVELUP = function(msg)
                 tostring(ClampDelay(GzLevelUpDB.petDelay)),
                 tostring(ClampDelay(GzLevelUpDB.deathDelay)),
                 tostring(ClampDelay(GzLevelUpDB.selfDeathDelay)),
-                tostring(ClampDelay(GzLevelUpDB.wipeDelay))))
+                tostring(ClampDelay(GzLevelUpDB.wipeDelay)),
+                tostring(ClampDelay(GzLevelUpDB.rezDelay)),
+                tostring(ClampDelay(GzLevelUpDB.selfRezDelay))))
         elseif single then
             local n = (value:lower() == "off") and 0 or ClampDelay(value)
             GzLevelUpDB[single.delay] = n
@@ -1679,11 +1885,15 @@ SlashCmdList.GZLEVELUP = function(msg)
             end
         end
         -- The death lines use two sample names, so {names}/{count} are visible.
+        -- Only my own death is about me; my own resurrect names whoever got me
+        -- up, so that one takes a sample name as well.
         local sample = { L.PREVIEW_NAME_1, L.PREVIEW_NAME_2 }
-        for _, kind in ipairs(DEATH_ORDER) do
-            local cat = DEATH[kind]
+        for _, entry in ipairs({
+            { DEATH.member, sample }, { DEATH.self, { me } }, { DEATH.wipe, sample },
+            { REZ.member,   sample }, { REZ.self,   { L.PREVIEW_NAME_1 } },
+        }) do
+            local cat, names = entry[1], entry[2]
             if GzLevelUpDB[cat.enabled] then
-                local names = (kind == "self") and { me } or sample
                 print(PREFIX .. L.PREVIEW_PREFIX
                     .. Format(GzLevelUpDB[cat.message], names[1], UnitLevel("player"), nil, names))
             end
@@ -1705,6 +1915,9 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_SELFDEATH:format(tostring(GzLevelUpDB.announceSelfDeath)))
         print(L.HELP_WIPE:format(tostring(GzLevelUpDB.announceWipe)))
         print(L.HELP_DEATHMSG)
+        print(L.HELP_REZ:format(tostring(GzLevelUpDB.announceRez)))
+        print(L.HELP_SELFREZ:format(tostring(GzLevelUpDB.announceSelfRez)))
+        print(L.HELP_REZMSG)
         print(L.HELP_RAID:format(tostring(GzLevelUpDB.useRaidChat)))
         print(L.HELP_GROUP:format(tostring(GzLevelUpDB.announceGroup)))
         print(L.HELP_SELF:format(tostring(GzLevelUpDB.includeSelf)))
