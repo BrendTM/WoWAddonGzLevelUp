@@ -646,9 +646,15 @@ slash("")  -- opening the window is what builds the reset popup
 slash("profile new Raid")
 GzLevelUpDB.message = "gz"
 slash("profile Default")
+GzLevelUpDB.quickPanelPos = { point = "CENTER", x = 70, y = 80 }
 StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
 check("the active profile is back to stock", GzLevelUpDB.message, "Gz {name}!")
 check("the other one is left alone", GzLevelUpProfilesDB.profiles.Raid.message, "gz")
+-- Resetting your messages is no reason to throw the panels across the screen.
+check("the panel stays where it was dragged",
+      GzLevelUpDB.quickPanelPos and GzLevelUpDB.quickPanelPos.x, 70)
+check("and so does the config window",
+      GzLevelUpDB.configPos and GzLevelUpDB.configPos.x, 12)
 
 section("profiles: the settings tab")
 local menu = dropdownEntries(GzLevelUpProfileDropDown)

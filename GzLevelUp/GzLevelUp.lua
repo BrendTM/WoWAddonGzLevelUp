@@ -2012,9 +2012,13 @@ local function BuildConfig()
         preferredIndex = 3,
         OnAccept = function()
             -- Only the active profile: the others are none of this button's
-            -- business, and deleting one is a separate action.
-            wipe(GzLevelUpDB) -- also drops both stored window positions
-            ApplyDefaults()
+            -- business, and deleting one is a separate action. Loading an empty
+            -- profile is exactly a reset - it clears every setting and lets
+            -- ApplyDefaults fill them back in, while leaving the things that
+            -- are not settings alone. Where you dragged the windows is one of
+            -- those: resetting your messages is no reason to throw the panel
+            -- back into the middle of the screen.
+            LoadSettings({})
             StoreActive()
             UpdateQuickPanel()
             if quickPanel then
