@@ -381,6 +381,30 @@ GzLevelUpDB.announceDeaths = true
 reset(); fire("UNIT_HEALTH", "party1")
 check("a corpse we never saw alive stays silent", #timers, 0)
 
+section("death reply: a member whose data is still loading")
+-- Someone we have never grouped with: on joining, the roster lists them while
+-- their data is still on its way — nameless, and reported as alive.
+world.party4 = { name = "Unknown", guid = "G-dave", level = 0, exists = true }
+fire("GROUP_ROSTER_UPDATE")
+-- Now the data arrives: they have been lying dead the whole time.
+world.party4.name, world.party4.level, world.party4.dead = "Dave", 43, true
+reset(); fire("UNIT_NAME_UPDATE", "party4"); fire("UNIT_HEALTH", "party4")
+check("a corpse that was still loading stays silent", #timers, 0)
+revive("party4")
+reset(); die("party4"); runTimers()
+check("their next death is announced", lastSent(), "F Dave")
+
+-- Health can arrive before the name does, without any UNIT_NAME_UPDATE in
+-- between; that must not leave an "alive" baseline behind either.
+runTimers() -- close any open batch, so the timer count below is only ours
+world.party4 = { name = "Unknown", guid = "G-erin", level = 0, exists = true }
+fire("GROUP_ROSTER_UPDATE")
+reset(); fire("UNIT_HEALTH", "party4")
+world.party4.name, world.party4.level, world.party4.dead = "Erin", 44, true
+fire("UNIT_HEALTH", "party4")
+check("no baseline while the name is missing", #timers, 0)
+world.party4 = nil
+
 section("death reply: delay and raid chat")
 revive("party1")
 GzLevelUpDB.deathDelay = 5

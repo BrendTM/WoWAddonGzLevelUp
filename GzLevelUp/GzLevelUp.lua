@@ -230,8 +230,22 @@ local function IsDead(unit)
     return UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) and true or false
 end
 
+-- Right after joining, the roster already lists a member while their unit data
+-- is still on its way: the name reads as "Unknown" and the health API claims
+-- they are alive. Taking that as the alive/dead baseline turned a member who
+-- had been lying dead the whole time into a fresh death seconds later — and
+-- announced them as "Unknown" on top. So a unit only counts once its name has
+-- actually arrived.
+local UNKNOWN = UNKNOWNOBJECT or "Unknown"
+
+local function UnitReady(unit)
+    local name = UnitName(unit)
+    return name ~= nil and name ~= "" and name ~= UNKNOWN
+end
+
 local function RecordDead(unit)
     if not unit or not UnitExists(unit) then return end
+    if not UnitReady(unit) then return end
     local guid = UnitGUID(unit)
     if guid then knownDead[guid] = IsDead(unit) end
 end
@@ -258,6 +272,21 @@ local function SyncGroup()
             RecordDead("party" .. i)
         end
     end
+end
+
+-- The same snapshot for a single unit whose data reached us only after
+-- SyncGroup had already run. It fills gaps only: an entry that is already
+-- there is a real observation and must survive, otherwise a death could be
+-- overwritten away between the two events.
+local function SyncLateUnit(unit)
+    if not unit then return end
+    local kind = UnitCategory(unit)
+    if not kind or not UnitExists(unit) then return end
+
+    local guid = UnitGUID(unit)
+    if not guid then return end
+    if knownLevels[guid] == nil then RecordLevel(unit) end
+    if kind ~= "pet" and knownDead[guid] == nil then RecordDead(unit) end
 end
 
 -- The chat channel the addon may use right now, or nil to stay quiet.
@@ -378,6 +407,9 @@ local function CheckDeath(unit)
         return
     end
     if not unit or not UnitExists(unit) then return end
+    -- No name yet means no usable state either: neither a baseline worth
+    -- keeping nor a death worth announcing.
+    if not UnitReady(unit) then return end
 
     local kind = UnitCategory(unit)
     if kind ~= "member" and kind ~= "self" then return end
@@ -686,6 +718,9 @@ f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("UNIT_LEVEL")
 f:RegisterEvent("UNIT_PET")
+-- Fires when a unit's data finally arrives, i.e. exactly when SyncGroup was
+-- too early for it.
+f:RegisterEvent("UNIT_NAME_UPDATE")
 -- Death detection: UNIT_HEALTH covers the group, the PLAYER_* events cover me
 -- (they also fire when nobody's health is being tracked, e.g. after a release).
 f:RegisterEvent("UNIT_HEALTH")
@@ -708,6 +743,8 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2)
         -- All three run through the same edge detector, so a death that both
         -- UNIT_HEALTH and PLAYER_DEAD report is still announced only once.
         CheckDeath("player")
+    elseif event == "UNIT_NAME_UPDATE" then
+        SyncLateUnit(arg1)
     elseif event == "UNIT_PET" then
         -- A pet was summoned or swapped: record its level right away, so the
         -- next level-up has something to compare against.

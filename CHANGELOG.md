@@ -4,6 +4,17 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.3
+
+### Fixed
+
+- **No more "F Unknown" right after joining a group.** When you joined a group
+  that already had a corpse in it, the game handed the addon that member before
+  their data had arrived: nameless, and reported as alive. The addon took that
+  for the truth and announced a death the moment the real data showed up —
+  usually still under the name *Unknown*. A member is now only tracked once
+  their name is actually there.
+
 ## 1.2
 
 The addon now reacts to deaths as well — completely opt-in, nothing changes
