@@ -85,9 +85,22 @@ L.PET                  = "Companion"
 L.PREVIEW_NAME_1       = "Alice"
 L.PREVIEW_NAME_2       = "Bob"
 L.BTN_RESET            = "Restore defaults"
-L.RESET_CONFIRM        = "Reset all GzLevelUp settings to their defaults?"
-L.MSG_RESET            = "settings restored to defaults."
+L.RESET_CONFIRM        = "Reset the active profile to its default settings?"
+L.MSG_RESET            = "the active profile was restored to its defaults."
 L.PLAYER               = "Player"
+
+-- Settings profiles. PROFILE_DEFAULT is only read when the very first profile
+-- is created, so an existing one keeps its name if the client language changes.
+L.PROFILE_DEFAULT      = "Default"
+L.PROFILE_LIST         = "profiles:"
+L.PROFILE_ACTIVE_MARK  = " > "
+L.PROFILE_SWITCHED     = "profile \"%s\" is now active."
+L.PROFILE_CREATED      = "profile \"%s\" created from the current settings."
+L.PROFILE_EXISTS       = "there is already a profile called \"%s\"."
+L.PROFILE_DELETED      = "profile \"%s\" deleted."
+L.PROFILE_UNKNOWN      = "there is no profile called \"%s\"."
+L.PROFILE_KEEP_ACTIVE  = "the active profile cannot be deleted - switch to another one first."
+L.PROFILE_NEEDS_NAME   = "please give the new profile a name."
 
 L.STATE_ON             = "on"
 L.STATE_OFF            = "off"
@@ -142,6 +155,7 @@ L.HELP_GROUP           = "  /gz group        - announce group members (currently
 L.HELP_PANEL           = "  /gz panel        - toggle the quick-buttons panel"
 L.HELP_SCALE           = "  /gz scale <pct>  - quick panel size in percent (50-200)"
 L.HELP_SELF            = "  /gz self         - also announce your own level-up (currently: %s)"
+L.HELP_PROFILE         = "  /gz profile [name | new <name> | delete <name>] - settings profiles (currently: %s)"
 L.HELP_TEST            = "  /gz test         - show current messages as preview"
 
 -- ---------------------------------------------------------------------------
@@ -212,9 +226,19 @@ if GetLocale() == "deDE" then
     L.PREVIEW_NAME_1       = "Alice"
     L.PREVIEW_NAME_2       = "Bob"
     L.BTN_RESET            = "Zurücksetzen"
-    L.RESET_CONFIRM        = "Alle GzLevelUp-Einstellungen auf Standard zurücksetzen?"
-    L.MSG_RESET            = "Einstellungen zurückgesetzt."
+    L.RESET_CONFIRM        = "Das aktive Profil auf die Standardeinstellungen zurücksetzen?"
+    L.MSG_RESET            = "Aktives Profil zurückgesetzt."
     L.PLAYER               = "Spieler"
+
+    L.PROFILE_DEFAULT      = "Standard"
+    L.PROFILE_LIST         = "Profile:"
+    L.PROFILE_SWITCHED     = "Profil \"%s\" ist jetzt aktiv."
+    L.PROFILE_CREATED      = "Profil \"%s\" aus den aktuellen Einstellungen erstellt."
+    L.PROFILE_EXISTS       = "Es gibt bereits ein Profil namens \"%s\"."
+    L.PROFILE_DELETED      = "Profil \"%s\" gelöscht."
+    L.PROFILE_UNKNOWN      = "Es gibt kein Profil namens \"%s\"."
+    L.PROFILE_KEEP_ACTIVE  = "Das aktive Profil kann nicht gelöscht werden - wechsle zuerst zu einem anderen."
+    L.PROFILE_NEEDS_NAME   = "Bitte gib dem neuen Profil einen Namen."
 
     L.STATE_ON             = "an"
     L.STATE_OFF            = "aus"
@@ -270,5 +294,6 @@ if GetLocale() == "deDE" then
     L.HELP_PANEL           = "  /gz panel        - Quick-Panel ein-/ausblenden"
     L.HELP_SCALE           = "  /gz scale <pct>  - Quick-Panel-Größe in Prozent (50-200)"
     L.HELP_SELF            = "  /gz self         - eigenen Levelaufstieg mit ankündigen (aktuell: %s)"
+    L.HELP_PROFILE         = "  /gz profile [Name | new <Name> | delete <Name>] - Einstellungsprofile (aktuell: %s)"
     L.HELP_TEST            = "  /gz test         - aktuelle Nachrichten als Vorschau anzeigen"
 end

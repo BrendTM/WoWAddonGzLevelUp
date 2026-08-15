@@ -583,6 +583,73 @@ slash("delay 3")
 check("delay all reaches rez", GzLevelUpDB.rezDelay, 3)
 check("delay all reaches my rez", GzLevelUpDB.selfRezDelay, 3)
 
+section("profiles: upgrading from a version without them")
+-- Somebody who has been using the addon for a while: settings in the flat DB,
+-- no profile store anywhere. Nothing about that may change for them.
+GzLevelUpDB = { message = "Gz {name}, nice one!", includeSelf = true }
+GzLevelUpProfilesDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+check("their settings survive", GzLevelUpDB.message, "Gz {name}, nice one!")
+check("and the rest is defaulted", GzLevelUpDB.announceRez, false)
+check("they now have a profile", GzLevelUpProfilesDB.active, "Default")
+check("holding the same message", GzLevelUpProfilesDB.profiles.Default.message,
+      "Gz {name}, nice one!")
+check("bound to this character", GzLevelUpProfilesDB.chars["Brend - Blackrock"], "Default")
+
+section("profiles: creating and switching")
+slash("profile new Raid")
+check("the new profile is active", GzLevelUpProfilesDB.active, "Raid")
+check("and starts as a copy of the old one", GzLevelUpDB.message, "Gz {name}, nice one!")
+GzLevelUpDB.message, GzLevelUpDB.useRaidChat = "gz", true
+slash("profile Default")
+check("switching back restores the text", GzLevelUpDB.message, "Gz {name}, nice one!")
+check("and the raid setting", GzLevelUpDB.useRaidChat, false)
+slash("profile Raid")
+check("the other profile kept its own text", GzLevelUpDB.message, "gz")
+check("and its own raid setting", GzLevelUpDB.useRaidChat, true)
+slash("profile Nope")
+check("an unknown name changes nothing", GzLevelUpProfilesDB.active, "Raid")
+slash("profile new Raid")
+check("a name cannot be taken twice", GzLevelUpProfilesDB.active, "Raid")
+
+section("profiles: where a window sits is not a setting")
+GzLevelUpDB.configPos = { point = "CENTER", x = 12, y = 34 }
+slash("profile Default")
+check("the window stays where it was", GzLevelUpDB.configPos and GzLevelUpDB.configPos.x, 12)
+check("and the profile does not carry it", GzLevelUpProfilesDB.profiles.Raid.configPos, nil)
+
+section("profiles: one per character")
+-- Log out and back in as somebody else on the same account.
+fire("PLAYER_LOGOUT")
+world.player.name = "Zwerg"
+fire("ADDON_LOADED", "GzLevelUp")
+check("an unknown character keeps what is loaded", GzLevelUpProfilesDB.active, "Default")
+check("and is bound to it", GzLevelUpProfilesDB.chars["Zwerg - Blackrock"], "Default")
+slash("profile Raid")
+fire("PLAYER_LOGOUT")
+world.player.name = "Brend"
+fire("ADDON_LOADED", "GzLevelUp")
+check("the first character is back on its own", GzLevelUpProfilesDB.active, "Default")
+check("with its own message", GzLevelUpDB.message, "Gz {name}, nice one!")
+check("the other one stays where it was left", GzLevelUpProfilesDB.chars["Zwerg - Blackrock"], "Raid")
+
+section("profiles: deleting")
+slash("profile delete Default")
+check("the active one is refused", GzLevelUpProfilesDB.profiles.Default ~= nil, true)
+slash("profile delete Raid")
+check("another one goes", GzLevelUpProfilesDB.profiles.Raid, nil)
+check("and its characters are unbound", GzLevelUpProfilesDB.chars["Zwerg - Blackrock"], nil)
+check("the live settings are untouched", GzLevelUpDB.message, "Gz {name}, nice one!")
+
+section("profiles: restoring defaults stops at the active profile")
+slash("")  -- opening the window is what builds the reset popup
+slash("profile new Raid")
+GzLevelUpDB.message = "gz"
+slash("profile Default")
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("the active profile is back to stock", GzLevelUpDB.message, "Gz {name}!")
+check("the other one is left alone", GzLevelUpProfilesDB.profiles.Raid.message, "gz")
+
 section("addon metadata (feeds the info tab)")
 local meta = GetAddOnMetadata
 check("version present", type(meta("GzLevelUp", "Version")), "string")
@@ -592,7 +659,8 @@ check("curseforge link is a url",
       (meta("GzLevelUp", "X-CurseForge") or ""):match("^https://") ~= nil, true)
 check("github link is a url",
       (meta("GzLevelUp", "X-Website") or ""):match("^https://") ~= nil, true)
-check("saved variables declared", meta("GzLevelUp", "SavedVariables"), "GzLevelUpDB")
+check("saved variables declared", meta("GzLevelUp", "SavedVariables"),
+      "GzLevelUpDB, GzLevelUpProfilesDB")
 
 section("minimap button")
 check("off by default", GzLevelUpDB.minimapEnabled, false)

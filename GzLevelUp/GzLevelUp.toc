@@ -5,7 +5,7 @@
 ## Author: BrendTM
 ## Version: 1.2
 ## IconTexture: Interface\AddOns\GzLevelUp\icon
-## SavedVariables: GzLevelUpDB
+## SavedVariables: GzLevelUpDB, GzLevelUpProfilesDB
 ## X-Credits: Nuiti
 ## X-Website: https://github.com/BrendTM/WoWAddonGzLevelUp
 ## X-CurseForge: https://www.curseforge.com/wow/addons/gzlevelup

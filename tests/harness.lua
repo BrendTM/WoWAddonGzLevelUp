@@ -10,6 +10,8 @@
 --   timers    - queued C_Timer.After callbacks, { sec, fn }
 --   world     - the simulated group; edit levels and dead/feign/far flags here
 --   inRaid    - flips IsInRaid()
+--   realm     - what GetRealmName() returns; with world.player.name it decides
+--               which character profiles are bound to
 --   now       - what GetTime() returns; move it forward to age things out
 --   fire()    - deliver an event to the addon
 --   runTimers() - run every queued timer callback
@@ -49,6 +51,11 @@ end
 function IsInGroup()   return true end
 function IsInRaid()    return inRaid end
 function GetLocale()   return "enUS" end
+
+-- Which character we are logged in as. Together with world.player.name this is
+-- what profiles are bound to, so a test can "log in" as somebody else.
+realm = "Blackrock"
+function GetRealmName() return realm end
 
 -- The clock the addon reads. Tests move `now` forward to let an offer go stale.
 now = 0

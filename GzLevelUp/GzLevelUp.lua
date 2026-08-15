@@ -836,6 +836,147 @@ local function UpdateMinimapButton()
     if GzLevelUpDB.minimapEnabled then b:Show() else b:Hide() end
 end
 
+-- ---------------------------------------------------------------------------
+-- Settings profiles
+-- ---------------------------------------------------------------------------
+-- GzLevelUpDB stays exactly what it has always been: one flat table holding the
+-- settings that are in effect right now. The profile store lives beside it and
+-- keeps a named copy of every profile plus which character uses which, so the
+-- rest of the addon never has to know that profiles exist at all.
+--
+-- That also means an older version of the addon still finds everything where it
+-- expects it, and it settles who wins after a crash: GzLevelUpDB is written on
+-- every change, the copy in the store only at the points below, so the live
+-- table is always the newer of the two for the profile named in `active`.
+GzLevelUpProfilesDB = GzLevelUpProfilesDB or {}
+
+-- Where a window was dragged to is not a setting. Carrying those along would
+-- make the panels jump across the screen on every switch, so they stay put.
+local NOT_IN_PROFILE = {
+    configPos = true, quickPanelPos = true, minimapAngle = true,
+}
+
+local ReloadConfigUI -- set by BuildConfig, once the window exists
+
+local function CopySettings(from, into)
+    for k, v in pairs(from) do
+        if not NOT_IN_PROFILE[k] then into[k] = v end
+    end
+    return into
+end
+
+-- Replaces the live settings wholesale: keys the incoming profile does not have
+-- must disappear rather than linger from the profile before it.
+local function LoadSettings(profile)
+    for k in pairs(GzLevelUpDB) do
+        if not NOT_IN_PROFILE[k] then GzLevelUpDB[k] = nil end
+    end
+    CopySettings(profile, GzLevelUpDB)
+    ApplyDefaults()
+end
+
+-- Profiles are bound per character, and two realms can have a "Brend".
+local function CharKey()
+    local name = UnitName("player") or "?"
+    local realm = GetRealmName and GetRealmName() or ""
+    if realm == "" then return name end
+    return name .. " - " .. realm
+end
+
+local function ActiveProfile()
+    return GzLevelUpProfilesDB.active
+end
+
+local function ProfileNames()
+    local names = {}
+    for name in pairs(GzLevelUpProfilesDB.profiles or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    return names
+end
+
+-- Writes the live settings back into the profile they belong to.
+local function StoreActive()
+    local s = GzLevelUpProfilesDB
+    if s.active then s.profiles[s.active] = CopySettings(GzLevelUpDB, {}) end
+end
+
+local function ApplyProfileEverywhere()
+    UpdateQuickPanel()
+    if quickPanel then quickPanel:SetScale(ClampScale(GzLevelUpDB.quickPanelScale)) end
+    UpdateMinimapButton()
+    PlaceMinimapButton()
+    if ReloadConfigUI then ReloadConfigUI() end
+end
+
+-- Called on every load. For someone who has been using the addon all along
+-- this is invisible: their settings simply become their first profile.
+local function InitProfiles()
+    local s = GzLevelUpProfilesDB
+    s.profiles = s.profiles or {}
+    s.chars    = s.chars or {}
+
+    if s.active == nil or s.profiles[s.active] == nil then
+        s.active = s.active or L.PROFILE_DEFAULT
+        s.profiles[s.active] = CopySettings(GzLevelUpDB, {})
+    end
+
+    -- Whatever is live belongs to the profile we left off with, whether we got
+    -- here through a clean logout or through a crash.
+    StoreActive()
+
+    local me = CharKey()
+    local want = s.chars[me]
+    if want == nil or s.profiles[want] == nil then
+        -- A character we have not seen before keeps using what is loaded.
+        s.chars[me], want = s.active, s.active
+    end
+
+    if want ~= s.active then
+        LoadSettings(s.profiles[want])
+        s.active = want
+    end
+end
+
+-- Switching is a user action, so it also binds this character to the profile.
+local function SwitchProfile(name)
+    local s = GzLevelUpProfilesDB
+    if not name or not s.profiles[name] then return false end
+    s.chars[CharKey()] = name
+    if name ~= s.active then
+        StoreActive()
+        LoadSettings(s.profiles[name])
+        s.active = name
+        ApplyProfileEverywhere()
+    end
+    return true
+end
+
+-- A new profile starts as a copy of what is configured right now: you almost
+-- always want "like this one, but ...", and a blank slate is one /gz reset away.
+local function CreateProfile(name)
+    local s = GzLevelUpProfilesDB
+    if not name or name == "" or s.profiles[name] then return false end
+    StoreActive()
+    s.profiles[name] = CopySettings(GzLevelUpDB, {})
+    s.chars[CharKey()] = name
+    s.active = name
+    return true
+end
+
+-- The active profile cannot be deleted - there would be nothing left to fall
+-- back to for the settings that are currently in effect.
+local function DeleteProfile(name)
+    local s = GzLevelUpProfilesDB
+    if not name or not s.profiles[name] or name == s.active then return false end
+    s.profiles[name] = nil
+    for char, used in pairs(s.chars) do
+        if used == name then s.chars[char] = nil end
+    end
+    return true
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -853,12 +994,17 @@ f:RegisterEvent("PLAYER_DEAD")
 f:RegisterEvent("PLAYER_ALIVE")
 f:RegisterEvent("PLAYER_UNGHOST")
 f:RegisterEvent("RESURRECT_REQUEST")
+-- The last chance to copy the live settings into the active profile.
+f:RegisterEvent("PLAYER_LOGOUT")
 for event in pairs(REPLY_EVENTS) do f:RegisterEvent(event) end
 f:SetScript("OnEvent", function(self, event, arg1, arg2)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON then
             ApplyDefaults()
+            InitProfiles()
         end
+    elseif event == "PLAYER_LOGOUT" then
+        StoreActive()
     elseif REPLY_EVENTS[event] then
         OnGroupChat(event, arg1, arg2) -- arg1 = text, arg2 = sender
     elseif event == "UNIT_LEVEL" then
@@ -1707,8 +1853,11 @@ local function BuildConfig()
         hideOnEscape = true,
         preferredIndex = 3,
         OnAccept = function()
+            -- Only the active profile: the others are none of this button's
+            -- business, and deleting one is a separate action.
             wipe(GzLevelUpDB) -- also drops both stored window positions
             ApplyDefaults()
+            StoreActive()
             UpdateQuickPanel()
             if quickPanel then
                 quickPanel:SetScale(ClampScale(GzLevelUpDB.quickPanelScale))
@@ -1852,6 +2001,43 @@ SlashCmdList.GZLEVELUP = function(msg)
             end
             print(PREFIX .. L.DELAY_SET:format(tostring(n)))
         end
+    elseif cmd == "profile" then
+        -- "new" and "delete" are the only reserved words here; anything else is
+        -- taken as a profile name, spaces and all.
+        local verb, name = rest:match("^(%S*)%s*(.*)$")
+        if verb:lower() == "new" or verb:lower() == "delete" then
+            verb = verb:lower()
+        else
+            verb, name = "use", rest
+        end
+
+        if verb == "new" then
+            if name == "" then
+                print(PREFIX .. L.PROFILE_NEEDS_NAME)
+            elseif CreateProfile(name) then
+                print(PREFIX .. L.PROFILE_CREATED:format(name))
+            else
+                print(PREFIX .. L.PROFILE_EXISTS:format(name))
+            end
+        elseif verb == "delete" then
+            if DeleteProfile(name) then
+                print(PREFIX .. L.PROFILE_DELETED:format(name))
+            elseif name == ActiveProfile() then
+                print(PREFIX .. L.PROFILE_KEEP_ACTIVE)
+            else
+                print(PREFIX .. L.PROFILE_UNKNOWN:format(name))
+            end
+        elseif name == "" then
+            print(PREFIX .. L.PROFILE_LIST)
+            for _, entry in ipairs(ProfileNames()) do
+                local mark = (entry == ActiveProfile()) and L.PROFILE_ACTIVE_MARK or "   "
+                print(mark .. entry)
+            end
+        elseif SwitchProfile(name) then
+            print(PREFIX .. L.PROFILE_SWITCHED:format(name))
+        else
+            print(PREFIX .. L.PROFILE_UNKNOWN:format(name))
+        end
     elseif cmd == "minimap" then
         GzLevelUpDB.minimapEnabled = not GzLevelUpDB.minimapEnabled
         UpdateMinimapButton()
@@ -1922,6 +2108,7 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_GROUP:format(tostring(GzLevelUpDB.announceGroup)))
         print(L.HELP_SELF:format(tostring(GzLevelUpDB.includeSelf)))
         print(L.HELP_PETS:format(tostring(GzLevelUpDB.includePets)))
+        print(L.HELP_PROFILE:format(tostring(ActiveProfile())))
         print(L.HELP_TEST)
     end
 end
