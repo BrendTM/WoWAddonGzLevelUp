@@ -42,6 +42,9 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
   on their feet, collected into one message the same way. Your own line is only
   sent when somebody actually resurrected you, and it names them — so `ty
   {name}` thanks the right person.
+- **Settings profiles** — keep more than one set of settings and switch from a
+  dropdown. Each character remembers its own and switches on login, so a healer
+  can run different messages from a hunter.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
 - **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
@@ -146,6 +149,10 @@ box with sensible defaults.
 | `/gz selfrezmsg <text>` | Set the message for your own resurrection |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
 | `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
+| `/gz profile` | List the settings profiles, marking the active one |
+| `/gz profile <name>` | Switch to that profile and bind this character to it |
+| `/gz profile new <name>` | Create a profile from the current settings |
+| `/gz profile delete <name>` | Delete a profile (not the one you are on) |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
@@ -229,6 +236,26 @@ and without any threshold — coming back is never bad news. Two differences:
   offer was declined nor that one was accepted.
 
 ---
+
+## Settings profiles
+
+A profile is one complete set of settings. The Settings tab has a dropdown with
+all of them plus *New* and *Delete*; `/gz profile` does the same from chat.
+
+- **Each character picks its own.** Switching a profile binds the character you
+  are on to it, and from then on logging in on that character switches to it.
+  A character the addon has not seen before keeps whatever is already loaded.
+- **New profiles are copies** of the one you are on, because "like this, but …"
+  is what you almost always want. `/gz reset` blanks one back to the defaults.
+- **Window positions are not part of a profile.** Where you dragged the config
+  window and the quick panel, and where the minimap button sits, stay put when
+  you switch — carrying those along would throw the panels across the screen.
+- **Restore defaults** only touches the profile you are on.
+
+Upgrading from a version without profiles needs no action: your settings become
+a profile called *Default* on the first login, and everything else follows from
+there. They also stay in the same flat saved variable they have always been in,
+so downgrading the addon again finds them intact.
 
 ## Localization
 

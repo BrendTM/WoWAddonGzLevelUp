@@ -23,12 +23,26 @@ it is written for players rather than for the diff.
   whoever offered.
 - New commands: `/gz rez`, `/gz selfrez`, `/gz rezmsg`, `/gz selfrezmsg`, and
   `rez` / `selfrez` as categories for `/gz delay`.
+- **Settings profiles**, on the Settings tab. Keep more than one set of
+  settings and switch between them from a dropdown. Every character remembers
+  which profile it uses and switches to it on login, so your healer can run
+  different messages from your hunter. A new profile starts as a copy of the
+  one you are on, and where you dragged the windows is deliberately not part of
+  a profile — the panels stay where they are when you switch.
+- New command: `/gz profile`, with `new` and `delete`.
 
 ### Changed
 
 - The **Death reply** tab now holds five lines instead of three and is split
   into two sub-pages, **Deaths** and **Resurrections**. The window keeps
   exactly the size it had.
+- **Restore defaults** resets the profile you are on, not every profile you
+  have. Deleting a profile is its own button.
+
+### Upgrading from 1.2
+
+Nothing to do. On the first login your existing settings become a profile
+called *Default*, and every character you log in on starts out using it.
 
 ### Fixed
 

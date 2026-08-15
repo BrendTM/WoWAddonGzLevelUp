@@ -33,6 +33,9 @@ Lightweight, fully configurable, and built for WoW Classic / Anniversary realms.
   on their feet, collected into one message the same way. The line about *your
   own* resurrection is only sent when somebody actually got you up, and it names
   them, so `ty {name}` thanks the right person.
+- **Settings profiles** — keep more than one set of settings and switch from a
+  dropdown on the Settings tab. Every character remembers which one it uses and
+  switches to it on login, so a healer can run different messages from a hunter.
 - **Movable quick-button panel** (opt-in) — a small floating panel with two
   buttons (**gz** / **ty**) that post to your group with a single click. The
   button texts are fully configurable, the panel remembers its position, and
@@ -143,7 +146,16 @@ what the range check notices.
   until you switch this on. Applies to everything it sends.
 - **Show minimap button** — opt-in. Left-click opens the settings, right-click
   toggles the quick panel, and you can drag it around the minimap.
-- **Restore defaults** — resets everything, after a confirmation prompt.
+- **Settings profile** — a dropdown with all your profiles plus *New* and
+  *Delete*. A profile is one complete set of settings; switching binds the
+  character you are on to it, so logging in on that character picks it up
+  again. New profiles start as a copy of the one you are on. Window positions
+  are not part of a profile, so nothing jumps around when you switch.
+- **Restore defaults** — resets the profile you are on, after a confirmation
+  prompt.
+
+Upgrading from an older version needs no action: your existing settings become
+a profile called *Default* on the first login.
 
 **Info**
 
@@ -178,6 +190,10 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz selfrezmsg <text>` | Set the message for your own resurrection |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
 | `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
+| `/gz profile` | List the settings profiles, marking the active one |
+| `/gz profile <name>` | Switch to that profile and bind this character to it |
+| `/gz profile new <name>` | Create a profile from the current settings |
+| `/gz profile delete <name>` | Delete a profile (not the one you are on) |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
