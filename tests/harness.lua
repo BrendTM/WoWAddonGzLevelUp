@@ -140,6 +140,10 @@ local function frameStub()
         end,
         SetText   = function(o, s) o._text = s or "" end,
         GetText   = function(o) return o._text end,
+        -- Real, because the addon branches on it: an auto-stub would read as
+        -- "checked" no matter what.
+        SetChecked = function(o, v) o._checked = v and true or false end,
+        GetChecked = function(o) return o._checked end,
         SetWidth  = function(o, w) o._w = w end,
         SetHeight = function(o, h) o._h = h end,
         SetSize   = function(o, w, h) o._w, o._h = w, h end,

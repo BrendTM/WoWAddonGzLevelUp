@@ -953,15 +953,18 @@ local function SwitchProfile(name)
     return true
 end
 
--- A new profile starts as a copy of what is configured right now: you almost
--- always want "like this one, but ...", and a blank slate is one /gz reset away.
-local function CreateProfile(name)
+-- A new profile either continues from what is configured right now - "like this
+-- one, but ..." is the common case - or starts from the settings the addon
+-- ships with. Loading an empty profile is what produces those.
+local function CreateProfile(name, fromCurrent)
     local s = GzLevelUpProfilesDB
     if not name or name == "" or s.profiles[name] then return false end
+
     StoreActive()
-    s.profiles[name] = CopySettings(GzLevelUpDB, {})
     s.chars[CharKey()] = name
     s.active = name
+    if not fromCurrent then LoadSettings({}) end
+    s.profiles[name] = CopySettings(GzLevelUpDB, {})
     return true
 end
 
@@ -1906,65 +1909,74 @@ local function BuildConfig()
         RefreshProfileUI()
     end
 
-    -- Reaching the edit box of a StaticPopup is not the same everywhere: some
-    -- clients hand it over as dialog.editBox, others only put it in _G under
-    -- the dialog's name. Try both, then fall back to whichever popup edit box
-    -- is on screen - getting this wrong means silently reading an empty name.
-    local function PopupEditBox(dialog)
-        if type(dialog) ~= "table" then return nil end
+    -- A hand-built dialog rather than a StaticPopup: those cannot carry a
+    -- checkbox, and it also takes us out of the guessing game about how a given
+    -- client hands over a popup's edit box.
+    local newDialog = CreateFrame("Frame", "GzLevelUpNewProfileDialog", UIParent,
+                                  "BackdropTemplate")
+    newDialog:SetSize(340, 150)
+    newDialog:SetPoint("CENTER")
+    newDialog:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    newDialog:SetFrameStrata("FULLSCREEN_DIALOG") -- above the config window
+    newDialog:EnableMouse(true)
+    newDialog:Hide()
+    tinsert(UISpecialFrames, "GzLevelUpNewProfileDialog") -- closes with ESC
 
-        local box = rawget(dialog, "editBox")
-        if box then return box end
+    local newPrompt = newDialog:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    newPrompt:SetPoint("TOP", 0, -20)
+    newPrompt:SetText(L.PROFILE_NEW_PROMPT)
 
-        local name = dialog.GetName and dialog:GetName()
-        if type(name) == "string" then
-            box = _G[name .. "EditBox"]
-            if box then return box end
+    local newName = CreateFrame("EditBox", nil, newDialog, "InputBoxTemplate")
+    newName:SetSize(270, 22)
+    newName:SetPoint("TOP", 0, -44)
+    newName:SetAutoFocus(false)
+    newName:SetMaxLetters(32)
+
+    local newCopy = CreateCheck(newDialog, L.PROFILE_COPY_CURRENT)
+    newCopy:SetPoint("TOPLEFT", 28, -72)
+
+    local newOK = CreateFrame("Button", nil, newDialog, "UIPanelButtonTemplate")
+    newOK:SetSize(110, 22)
+    newOK:SetPoint("BOTTOMRIGHT", newDialog, "BOTTOM", -6, 18)
+    newOK:SetText(L.BTN_CREATE)
+
+    local newCancel = CreateFrame("Button", nil, newDialog, "UIPanelButtonTemplate")
+    newCancel:SetSize(110, 22)
+    newCancel:SetPoint("BOTTOMLEFT", newDialog, "BOTTOM", 6, 18)
+    newCancel:SetText(L.BTN_CANCEL)
+
+    local function ConfirmNewProfile()
+        local name = (newName:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        local fromCurrent = newCopy:GetChecked() and true or false
+        newDialog:Hide()
+
+        if name == "" then
+            print(PREFIX .. L.PROFILE_NEEDS_NAME)
+            return
         end
 
-        for i = 1, 4 do
-            box = _G["StaticPopup" .. i .. "EditBox"]
-            if box and box.IsShown and box:IsShown() then return box end
+        Commit() -- a field that still had focus belongs to the profile we are on
+        if CreateProfile(name, fromCurrent) then
+            ApplyProfileEverywhere()
+            print(PREFIX .. L.PROFILE_CREATED:format(name))
+        else
+            print(PREFIX .. L.PROFILE_EXISTS:format(name))
         end
-        return nil
     end
 
-    local function PopupName(dialog)
-        local box  = PopupEditBox(dialog)
-        local text = box and box:GetText() or ""
-        return (text:gsub("^%s+", ""):gsub("%s+$", ""))
-    end
+    newOK:SetScript("OnClick", ConfirmNewProfile)
+    newCancel:SetScript("OnClick", function() newDialog:Hide() end)
+    newName:SetScript("OnEnterPressed", ConfirmNewProfile)
+    newName:SetScript("OnEscapePressed", function() newDialog:Hide() end)
 
-    StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"] = {
-        text = L.PROFILE_NEW_PROMPT,
-        button1 = ACCEPT,
-        button2 = CANCEL,
-        hasEditBox = true,
-        maxLetters = 32,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-        OnAccept = function(self)
-            local name = PopupName(self)
-            Commit()
-            if CreateProfile(name) then
-                RefreshProfileUI()
-                print(PREFIX .. L.PROFILE_CREATED:format(name))
-            elseif name == "" then
-                print(PREFIX .. L.PROFILE_NEEDS_NAME)
-            else
-                print(PREFIX .. L.PROFILE_EXISTS:format(name))
-            end
-        end,
-        -- Enter in the text field should do the same as clicking Accept.
-        EditBoxOnEnterPressed = function(self)
-            local dialog = self:GetParent()
-            StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"].OnAccept(dialog)
-            dialog:Hide()
-        end,
-        EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-    }
+    -- Reachable for the test suite, which has no way to click a button.
+    newDialog.nameBox, newDialog.copyCheck = newName, newCopy
+    newDialog.Confirm = ConfirmNewProfile
 
     StaticPopupDialogs["GZLEVELUP_DELETE_PROFILE"] = {
         text = L.PROFILE_DELETE_CONFIRM,
@@ -1993,7 +2005,11 @@ local function BuildConfig()
     }
 
     newProfileBtn:SetScript("OnClick", function()
-        StaticPopup_Show("GZLEVELUP_NEW_PROFILE")
+        newName:SetText("")
+        -- Carrying the current settings over is what you want most of the time.
+        newCopy:SetChecked(true)
+        newDialog:Show()
+        newName:SetFocus()
     end)
 
     delProfileBtn:SetScript("OnClick", function()
@@ -2176,7 +2192,7 @@ SlashCmdList.GZLEVELUP = function(msg)
         if verb == "new" then
             if name == "" then
                 print(PREFIX .. L.PROFILE_NEEDS_NAME)
-            elseif CreateProfile(name) then
+            elseif CreateProfile(name, true) then
                 print(PREFIX .. L.PROFILE_CREATED:format(name))
             else
                 print(PREFIX .. L.PROFILE_EXISTS:format(name))

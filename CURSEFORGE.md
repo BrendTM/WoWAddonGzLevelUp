@@ -149,8 +149,9 @@ what the range check notices.
 - **Settings profile** — a dropdown with all your profiles plus *New* and
   *Delete*. A profile is one complete set of settings; switching binds the
   character you are on to it, so logging in on that character picks it up
-  again. New profiles start as a copy of the one you are on. Window positions
-  are not part of a profile, so nothing jumps around when you switch.
+  again. When you create one, a checkbox decides whether it takes the current
+  settings over or starts from the addon's defaults. Window positions are not
+  part of a profile, so nothing jumps around when you switch.
 - **Restore defaults** — resets the profile you are on, after a confirmation
   prompt.
 

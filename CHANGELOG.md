@@ -26,9 +26,10 @@ it is written for players rather than for the diff.
 - **Settings profiles**, on the Settings tab. Keep more than one set of
   settings and switch between them from a dropdown. Every character remembers
   which profile it uses and switches to it on login, so your healer can run
-  different messages from your hunter. A new profile starts as a copy of the
-  one you are on, and where you dragged the windows is deliberately not part of
-  a profile — the panels stay where they are when you switch.
+  different messages from your hunter. When you create one, a checkbox decides
+  whether it takes your current settings over or starts from the settings the
+  addon ships with. Where you dragged the windows is deliberately not part of a
+  profile — the panels stay where they are when you switch.
 - New command: `/gz profile`, with `new` and `delete`.
 
 ### Changed

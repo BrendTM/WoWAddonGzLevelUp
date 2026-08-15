@@ -666,38 +666,43 @@ menu[2].func()
 check("clicking an entry switches", GzLevelUpProfilesDB.active, "Raid")
 check("and loads its settings", GzLevelUpDB.message, "gz")
 
--- How the dialog hands over its edit box differs between clients, and reading
--- it the wrong way looks exactly like an empty name. All three ways a popup can
--- offer it have to work; the middle one is what the game actually does.
-local newProfile = StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"]
-local function editBoxWith(text)
-    return { GetText = function() return text end, IsShown = function() return true end }
+-- The new-profile dialog: a name, and a checkbox deciding where the settings
+-- come from.
+local newDialog = GzLevelUpNewProfileDialog
+local function fillNewDialog(name, copyCurrent)
+    newDialog.nameBox:SetText(name)
+    newDialog.copyCheck:SetChecked(copyCurrent)
+    newDialog.Confirm()
 end
 
-newProfile.OnAccept({ editBox = editBoxWith("  Dungeon  ") })
-check("a name on the dialog itself is read", GzLevelUpProfilesDB.profiles.Dungeon ~= nil, true)
-check("and trimmed", GzLevelUpProfilesDB.active, "Dungeon")
-check("the profile is a copy of the one we were on", GzLevelUpDB.message, "gz")
+fillNewDialog("  Dungeon  ", true)
+check("the dialog creates a profile", GzLevelUpProfilesDB.profiles.Dungeon ~= nil, true)
+check("with the name trimmed", GzLevelUpProfilesDB.active, "Dungeon")
+check("taking the current settings over", GzLevelUpDB.message, "gz")
 
--- Only reachable through the global the dialog is named after.
-StaticPopup7EditBox = editBoxWith("Named")
-newProfile.OnAccept({ GetName = function() return "StaticPopup7" end })
-check("a name behind the dialog's own name is read", GzLevelUpProfilesDB.active, "Named")
+-- Unticked, the new profile starts from what the addon ships with instead.
+-- Two settings that are off by default get switched on first, so "back to
+-- stock" means more than the message being replaced.
+GzLevelUpDB.announceRez, GzLevelUpDB.useRaidChat = true, true
+fillNewDialog("Fresh", false)
+check("a fresh profile is active", GzLevelUpProfilesDB.active, "Fresh")
+check("and starts from the shipped defaults", GzLevelUpDB.message, "Gz {name}!")
+check("switches are back to stock too", GzLevelUpDB.announceRez, false)
+check("all of them", GzLevelUpDB.useRaidChat, false)
+check("the profile we came from kept its message",
+      GzLevelUpProfilesDB.profiles.Dungeon.message, "gz")
+check("and kept its switches", GzLevelUpProfilesDB.profiles.Dungeon.announceRez, true)
 
--- Neither of the two: fall back to whichever popup edit box is on screen.
-StaticPopup1EditBox = editBoxWith("Shown")
-newProfile.OnAccept({})
-check("the visible popup edit box is the last resort", GzLevelUpProfilesDB.active, "Shown")
+-- A name that is only blanks is no name at all, and nothing is created.
+local before = GzLevelUpProfilesDB.active
+fillNewDialog("   ", true)
+check("an empty name creates nothing", GzLevelUpProfilesDB.active, before)
 
--- And an empty box really is a missing name, not one we failed to find.
-StaticPopup1EditBox = editBoxWith("")
-newProfile.OnAccept({})
-check("an empty box creates nothing", GzLevelUpProfilesDB.active, "Shown")
-StaticPopup1EditBox, StaticPopup7EditBox = nil, nil
+fillNewDialog("Dungeon", true)
+check("an existing name is refused", GzLevelUpProfilesDB.active, before)
 
-slash("profile delete Named")
-slash("profile delete Shown")
 slash("profile Dungeon")
+slash("profile delete Fresh")
 
 -- Deleting from the tab removes the profile you are on, so it steps aside
 -- first - the slash command refuses instead, where you name it yourself.

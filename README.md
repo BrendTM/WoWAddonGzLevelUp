@@ -245,8 +245,10 @@ all of them plus *New* and *Delete*; `/gz profile` does the same from chat.
 - **Each character picks its own.** Switching a profile binds the character you
   are on to it, and from then on logging in on that character switches to it.
   A character the addon has not seen before keeps whatever is already loaded.
-- **New profiles are copies** of the one you are on, because "like this, but …"
-  is what you almost always want. `/gz reset` blanks one back to the defaults.
+- **New profiles start where you tell them to.** The dialog has a checkbox for
+  taking the current settings over — ticked by default, because "like this,
+  but …" is what you usually want. Untick it and the profile starts from the
+  settings the addon ships with. `/gz profile new <name>` always copies.
 - **Window positions are not part of a profile.** Where you dragged the config
   window and the quick panel, and where the minimap button sits, stay put when
   you switch — carrying those along would throw the panels across the screen.
