@@ -1621,11 +1621,42 @@ local function BuildConfig()
         UpdateMinimapButton()
     end)
 
+    -- --- Settings profiles ------------------------------------------------
+    local profileSep = settingsPage:CreateTexture(nil, "ARTWORK")
+    profileSep:SetTexture(WHITE)
+    profileSep:SetHeight(1)
+    profileSep:SetPoint("TOPLEFT", 30, -100)
+    profileSep:SetPoint("TOPRIGHT", -30, -100)
+    profileSep:SetVertexColor(1, 1, 1, 0.15)
+
+    local profileLabel = settingsPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    profileLabel:SetPoint("TOPLEFT", 30, -118)
+    profileLabel:SetText(L.PROFILE_LABEL)
+
+    local profileHelp = CreateHelpIcon(settingsPage, L.PROFILE_HELP_TITLE, L.PROFILE_HELP)
+    profileHelp:SetPoint("LEFT", profileLabel, "RIGHT", 6, 0)
+
+    -- The dropdown needs a global name: the UIDropDownMenu functions look their
+    -- frame up by it rather than taking the frame itself.
+    local profileDrop = CreateFrame("Frame", "GzLevelUpProfileDropDown", settingsPage,
+                                    "UIDropDownMenuTemplate")
+    profileDrop:SetPoint("TOPLEFT", 12, -140)
+
+    local newProfileBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
+    newProfileBtn:SetSize(76, 22)
+    newProfileBtn:SetPoint("TOPLEFT", 200, -144)
+    newProfileBtn:SetText(L.BTN_PROFILE_NEW)
+
+    local delProfileBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
+    delProfileBtn:SetSize(76, 22)
+    delProfileBtn:SetPoint("LEFT", newProfileBtn, "RIGHT", 6, 0)
+    delProfileBtn:SetText(L.BTN_PROFILE_DELETE)
+
     -- The reset button lives here too; it is wired up further down, once the
     -- confirmation popup and LoadValues() exist.
     local resetBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
     resetBtn:SetSize(160, 24)
-    resetBtn:SetPoint("TOPLEFT", 30, -104)
+    resetBtn:SetPoint("TOPLEFT", 30, -196)
     resetBtn:SetText(L.BTN_RESET)
 
     -- === Tab 6: info ======================================================
@@ -1843,6 +1874,99 @@ local function BuildConfig()
         UpdatePreview()
     end
 
+    -- === Settings profiles =================================================
+    -- The menu is rebuilt from the store every time it opens, so creating or
+    -- deleting a profile needs no bookkeeping here.
+    local function RefreshProfileUI()
+        UIDropDownMenu_SetText(profileDrop, ActiveProfile() or "")
+        -- With a single profile there is nothing to delete: the one in use is
+        -- never a candidate.
+        delProfileBtn:SetEnabled(#ProfileNames() > 1)
+    end
+
+    UIDropDownMenu_SetWidth(profileDrop, 150)
+    UIDropDownMenu_Initialize(profileDrop, function(_, level)
+        for _, name in ipairs(ProfileNames()) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text    = name
+            info.checked = (name == ActiveProfile())
+            info.func    = function()
+                Commit() -- a field that still had focus belongs to the old profile
+                SwitchProfile(name)
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+
+    -- Everything the window has to re-read after the settings were swapped
+    -- underneath it. ApplyProfileEverywhere calls this if the window exists.
+    ReloadConfigUI = function()
+        LoadValues()
+        RefreshProfileUI()
+    end
+
+    StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"] = {
+        text = L.PROFILE_NEW_PROMPT,
+        button1 = ACCEPT,
+        button2 = CANCEL,
+        hasEditBox = true,
+        maxLetters = 32,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+        OnAccept = function(self)
+            local box  = self and self.editBox
+            local name = box and box:GetText() or ""
+            name = name:gsub("^%s+", ""):gsub("%s+$", "")
+            Commit()
+            if CreateProfile(name) then
+                RefreshProfileUI()
+                print(PREFIX .. L.PROFILE_CREATED:format(name))
+            elseif name == "" then
+                print(PREFIX .. L.PROFILE_NEEDS_NAME)
+            else
+                print(PREFIX .. L.PROFILE_EXISTS:format(name))
+            end
+        end,
+    }
+
+    StaticPopupDialogs["GZLEVELUP_DELETE_PROFILE"] = {
+        text = L.PROFILE_DELETE_CONFIRM,
+        button1 = YES,
+        button2 = NO,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+        OnAccept = function()
+            -- The profile in use is never the one that gets removed, so step
+            -- onto another one first and take this one with us.
+            local doomed = ActiveProfile()
+            for _, name in ipairs(ProfileNames()) do
+                if name ~= doomed then
+                    Commit()
+                    SwitchProfile(name)
+                    break
+                end
+            end
+            if DeleteProfile(doomed) then
+                RefreshProfileUI()
+                print(PREFIX .. L.PROFILE_DELETED:format(doomed))
+            end
+        end,
+    }
+
+    newProfileBtn:SetScript("OnClick", function()
+        StaticPopup_Show("GZLEVELUP_NEW_PROFILE")
+    end)
+
+    delProfileBtn:SetScript("OnClick", function()
+        if #ProfileNames() < 2 then return end
+        StaticPopup_Show("GZLEVELUP_DELETE_PROFILE", ActiveProfile())
+    end)
+
     -- === Restore defaults ==================================================
     StaticPopupDialogs["GZLEVELUP_RESET"] = {
         text = L.RESET_CONFIRM,
@@ -1873,7 +1997,7 @@ local function BuildConfig()
 
     resetBtn:SetScript("OnClick", function() StaticPopup_Show("GZLEVELUP_RESET") end)
 
-    frame:SetScript("OnShow", LoadValues)
+    frame:SetScript("OnShow", function() ReloadConfigUI() end)
     frame:SetScript("OnHide", Commit) -- catches a field that still had focus
 
     SelectTab(1)

@@ -15,6 +15,7 @@
 --   now       - what GetTime() returns; move it forward to age things out
 --   fire()    - deliver an event to the addon
 --   runTimers() - run every queued timer callback
+--   dropdownEntries(frame) - what a dropdown menu would offer right now
 --   testPrint - the real print, since the addon's print is silenced
 
 local M = {}
@@ -73,6 +74,27 @@ function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function StaticPopup_Show() end
 
 UIParent, StaticPopupDialogs, SlashCmdList, UISpecialFrames = {}, {}, {}, {}
+ACCEPT, CANCEL = "Accept", "Cancel"
+
+-- Dropdown menus. The init function is kept so a test can open the menu and
+-- click an entry through dropdownEntries() below.
+local dropInit = {}
+function UIDropDownMenu_Initialize(frame, fn) dropInit[frame] = fn end
+function UIDropDownMenu_SetWidth() end
+function UIDropDownMenu_SetText(frame, text) frame._dropText = text end
+function UIDropDownMenu_CreateInfo() return {} end
+function CloseDropDownMenus() end
+
+-- Collected while the init function runs, so tests see what the menu offers.
+local dropButtons
+function UIDropDownMenu_AddButton(info) dropButtons[#dropButtons + 1] = info end
+
+-- The entries a dropdown would show right now: { text, checked, func }.
+function dropdownEntries(frame)
+    dropButtons = {}
+    if dropInit[frame] then dropInit[frame](frame, 1) end
+    return dropButtons
+end
 -- The minimap button anchors to this and reads the cursor while dragging.
 Minimap = setmetatable({
     GetCenter = function() return 100, 100 end,

@@ -650,6 +650,31 @@ StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
 check("the active profile is back to stock", GzLevelUpDB.message, "Gz {name}!")
 check("the other one is left alone", GzLevelUpProfilesDB.profiles.Raid.message, "gz")
 
+section("profiles: the settings tab")
+local menu = dropdownEntries(GzLevelUpProfileDropDown)
+check("the menu lists every profile", #menu, 2)
+check("in a stable order", (menu[1].text or "") .. "/" .. (menu[2].text or ""), "Default/Raid")
+check("with the active one ticked", menu[1].checked, true)
+check("and the other one not", menu[2].checked, false)
+menu[2].func()
+check("clicking an entry switches", GzLevelUpProfilesDB.active, "Raid")
+check("and loads its settings", GzLevelUpDB.message, "gz")
+
+-- The popup hands its edit box to OnAccept; surrounding blanks are dropped.
+StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"].OnAccept({
+    editBox = { GetText = function() return "  Dungeon  " end },
+})
+check("a new profile is created from the popup", GzLevelUpProfilesDB.profiles.Dungeon ~= nil, true)
+check("with the name trimmed", GzLevelUpProfilesDB.active, "Dungeon")
+check("as a copy of the one we were on", GzLevelUpDB.message, "gz")
+
+-- Deleting from the tab removes the profile you are on, so it steps aside
+-- first - the slash command refuses instead, where you name it yourself.
+StaticPopupDialogs["GZLEVELUP_DELETE_PROFILE"].OnAccept()
+check("the profile is gone", GzLevelUpProfilesDB.profiles.Dungeon, nil)
+check("and we landed on another one", GzLevelUpProfilesDB.active, "Default")
+check("whose settings are loaded", GzLevelUpDB.message, "Gz {name}!")
+
 section("addon metadata (feeds the info tab)")
 local meta = GetAddOnMetadata
 check("version present", type(meta("GzLevelUp", "Version")), "string")
