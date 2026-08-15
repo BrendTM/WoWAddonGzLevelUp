@@ -29,6 +29,10 @@ Lightweight, fully configurable, and built for WoW Classic / Anniversary realms.
   die, or when the group wipes. Deaths are collected for a moment and answered
   with one message, and a wipe gets its own line instead of a flood of them —
   or nothing at all, if you leave that line off.
+- **Rez reply** (opt-in) — the counterpart: a "wb" when group members are back
+  on their feet, collected into one message the same way. The line about *your
+  own* resurrection is only sent when somebody actually got you up, and it names
+  them, so `ty {name}` thanks the right person.
 - **Movable quick-button panel** (opt-in) — a small floating panel with two
   buttons (**gz** / **ty**) that post to your group with a single click. The
   button texts are fully configurable, the panel remembers its position, and
@@ -90,12 +94,20 @@ Nothing is sent.
 
 **Death reply**
 
-Opt-in, all three of them. Same layout as *Messages*: a switch, a message and a
-delay per line.
+Opt-in, all five of them. Same layout as *Messages*: a switch, a message and a
+delay per line. The tab is split into two sub-pages, so the window stays the
+size it was.
+
+*Deaths*
 
 - **A group member's death** — someone else in the group dies.
 - **My own death** — you die.
 - **A group wipe** — enough people die at once to call it a wipe.
+
+*Resurrections*
+
+- **A group member's resurrection** — someone else is back on their feet.
+- **My own resurrection** — somebody got *you* back up.
 
 Deaths rarely come alone, so they are collected for a moment and answered with a
 *single* message rather than one line per corpse.
@@ -104,9 +116,19 @@ Deaths rarely come alone, so they are collected for a moment and answered with a
 - **Counts as a wipe from** — how many deaths make it a wipe (default 3). Reach
   that many and only the wipe line is sent — or nothing, if you left it off. Set
   it to `0` to never treat anything as a wipe.
+- **Collect resurrections for** — the same window for the two rez lines
+  (default 3 s), on the *Resurrections* page. There is no threshold here:
+  coming back is never bad news.
 
 A hunter feigning death is not a death, and a corpse that was already on the
 floor when you joined is not announced either.
+
+Getting a group member back up counts however it happened, corpse run included.
+Your own line is the exception: it is only sent when another player actually
+resurrected you and is still in range when you get up, and `{name}` is that
+player. A corpse run or the spirit healer leaves nobody to thank — the spirit
+healer drops you at the graveyard, far from whoever offered, which is exactly
+what the range check notices.
 
 **Quick panel**
 
@@ -150,8 +172,12 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz deathmsg <text>` | Set the message for a group member's death |
 | `/gz selfdeathmsg <text>` | Set the message for your own death |
 | `/gz wipemsg <text>` | Set the wipe message |
+| `/gz rez` | Toggle announcing a group member's resurrection |
+| `/gz selfrez` | Toggle announcing your own resurrection |
+| `/gz rezmsg <text>` | Set the message for a group member's resurrection |
+| `/gz selfrezmsg <text>` | Set the message for your own resurrection |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
-| `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe> <sec>` | Set the delay for one category |
+| `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
@@ -177,15 +203,19 @@ In the auto-reply message:
 
 Example: `ty {names}!`
 
-In the three death messages:
+In the three death messages and the two resurrection messages:
 
-- **`{names}`** → everyone who died in this batch, comma separated
+- **`{names}`** → everyone in this batch, comma separated
 - **`{name}`** → the first one
 - **`{count}`** → how many there were
 - **`{level}`** → their level
 
 The default is `F {name}` — a line about one member. Put `{names}` in instead and
-a batch becomes a list: `F Alice, Bob`.
+a batch becomes a list: `F Alice, Bob`. The same goes for `wb {name}`.
+
+One exception: in the message for **your own** resurrection, `{name}` is the
+player who resurrected you, not you — that line exists to thank them. Example:
+`ty {name}!`
 
 ---
 

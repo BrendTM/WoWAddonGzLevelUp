@@ -4,6 +4,41 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.3
+
+### New
+
+- **Rez reply** (opt-in) — the counterpart to the death reply: post a message
+  when a group member is back on their feet, and when somebody got *you* back
+  up. Two more switches, each with its own text and its own 0–60 s delay.
+- **Resurrections are collected too.** They come in clusters just like deaths,
+  so they are gathered for a moment (3 s by default, its own field) and answered
+  with a *single* message. Out of the box that is `wb {name}`; swap in `{names}`
+  and it lists everyone: `wb Alice, Bob`. No threshold anywhere — coming back is
+  never bad news.
+- **Your own line thanks the right person.** It is only sent when another player
+  actually resurrected you and is still in range when you get up, and `{name}`
+  is *them*, so `ty {name}` names your healer. A corpse run says nothing, and
+  neither does the spirit healer — that one drops you at the graveyard, far from
+  whoever offered.
+- New commands: `/gz rez`, `/gz selfrez`, `/gz rezmsg`, `/gz selfrezmsg`, and
+  `rez` / `selfrez` as categories for `/gz delay`.
+
+### Changed
+
+- The **Death reply** tab now holds five lines instead of three and is split
+  into two sub-pages, **Deaths** and **Resurrections**. The window keeps
+  exactly the size it had.
+
+### Fixed
+
+- **No more "F Unknown" right after joining a group.** When you joined a group
+  that already had a corpse in it, the game handed the addon that member before
+  their data had arrived: nameless, and reported as alive. The addon took that
+  for the truth and announced a death the moment the real data showed up —
+  usually still under the name *Unknown*. A member is now only tracked once
+  their name is actually there.
+
 ## 1.2
 
 The addon now reacts to deaths as well — completely opt-in, nothing changes

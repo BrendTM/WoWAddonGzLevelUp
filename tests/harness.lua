@@ -8,8 +8,9 @@
 -- Exposed to the tests (globals, so run.lua can use them directly):
 --   sent      - list of { msg, chan } that reached SendChatMessage
 --   timers    - queued C_Timer.After callbacks, { sec, fn }
---   world     - the simulated group; edit levels and dead/feign flags here
+--   world     - the simulated group; edit levels and dead/feign/far flags here
 --   inRaid    - flips IsInRaid()
+--   now       - what GetTime() returns; move it forward to age things out
 --   fire()    - deliver an event to the addon
 --   runTimers() - run every queued timer callback
 --   testPrint - the real print, since the addon's print is silenced
@@ -38,9 +39,20 @@ function UnitName(u)   return world[u] and world[u].name end
 -- Death state. Tests set world.<unit>.dead / .feign and then fire UNIT_HEALTH.
 function UnitIsDeadOrGhost(u) return world[u] ~= nil and world[u].dead == true end
 function UnitIsFeignDeath(u)  return world[u] ~= nil and world[u].feign == true end
+
+-- Range check, as (inRange, checkedRange). Tests set world.<unit>.far = true to
+-- move somebody away; a unit the game does not know cannot be checked at all.
+function UnitInRange(u)
+    if world[u] == nil then return false, false end
+    return not world[u].far, true
+end
 function IsInGroup()   return true end
 function IsInRaid()    return inRaid end
 function GetLocale()   return "enUS" end
+
+-- The clock the addon reads. Tests move `now` forward to let an offer go stale.
+now = 0
+function GetTime()     return now end
 
 -- --- Chat ------------------------------------------------------------------
 function SendChatMessage(msg, chan) sent[#sent + 1] = { msg = msg, chan = chan } end

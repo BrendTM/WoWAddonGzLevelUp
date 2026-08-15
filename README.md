@@ -38,6 +38,10 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
   die, or when the group wipes. Deaths are collected for a moment and answered
   with one message naming everyone, and a wipe gets its own line instead of a
   flood of them (or nothing at all, if you leave that line off).
+- **Rez reply** (opt-in) — the counterpart: a "wb" when group members are back
+  on their feet, collected into one message the same way. Your own line is only
+  sent when somebody actually resurrected you, and it names them — so `ty
+  {name}` thanks the right person.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
 - **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
@@ -68,7 +72,7 @@ The config window (<code>/gz</code>) is split across six tabs:
   <tr>
     <td align="center" valign="top" width="50%">
       <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab"><br>
-      <sub><b>Death reply</b> — three opt-in lines, a collect window and a wipe threshold</sub>
+      <sub><b>Death reply</b> — two sub-pages, <i>Deaths</i> and <i>Resurrections</i>, each with its own lines and collect window</sub>
     </td>
     <td align="center" valign="top" width="50%">
       <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
@@ -136,8 +140,12 @@ box with sensible defaults.
 | `/gz deathmsg <text>` | Set the message for a group member's death |
 | `/gz selfdeathmsg <text>` | Set the message for your own death |
 | `/gz wipemsg <text>` | Set the wipe message |
+| `/gz rez` | Toggle announcing a group member's resurrection |
+| `/gz selfrez` | Toggle announcing your own resurrection |
+| `/gz rezmsg <text>` | Set the message for a group member's resurrection |
+| `/gz selfrezmsg <text>` | Set the message for your own resurrection |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
-| `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe> <sec>` | Set the delay for one category |
+| `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
@@ -162,21 +170,25 @@ In the auto-reply message:
 
 Example: `ty {names}!`
 
-In the three death messages:
+In the three death messages and the two resurrection messages:
 
-- **`{names}`** → everyone who died in this batch, comma separated
+- **`{names}`** → everyone in this batch, comma separated
 - **`{name}`** → the first one
 - **`{count}`** → how many there were
 - **`{level}`** → their level
 
 The default is `F {name}` — a line about one member. Put `{names}` in instead
-and a batch becomes a list: `F Alice, Bob`.
+and a batch becomes a list: `F Alice, Bob`. The same goes for `wb {name}`.
 
 Wipe example: `Wipe — {count} down.`
 
+One exception: in the message for **your own** resurrection, `{name}` is the
+player who resurrected you, not you — that line exists to thank them. Example:
+`ty {name}!`
+
 ---
 
-## How the death reply decides what to say
+## How the death and rez replies decide what to say
 
 Deaths cluster, so the addon waits a moment before saying anything:
 
@@ -198,6 +210,23 @@ them plus me" still registers as a wipe.
 A hunter feigning death does not count, and neither does a corpse that was
 already lying there when you joined the group — the addon only reacts to the
 moment somebody goes from alive to dead while it is watching.
+
+Resurrections work the same way, with their own collect window (3 s by default)
+and without any threshold — coming back is never bad news. Two differences:
+
+- Getting **a group member** back up counts however it happened, corpse run
+  included: they are back, and `wb` fits either way.
+- **Your own** line is only sent when another player actually resurrected you
+  *and* is still in range when you get up. A corpse run or the spirit healer
+  leaves nobody to thank, so nothing is said — and since the spirit healer puts
+  you at the graveyard, far from whoever offered, that is what the range check
+  catches. Somebody outside your group cannot be range-checked at all, so their
+  offer is taken at face value.
+
+  Two cases remain: declining an offer and then walking back to your own corpse
+  looks exactly like accepting it, and a resurrect you accept only after the
+  caster has wandered off stays silent. The game tells an addon neither that an
+  offer was declined nor that one was accepted.
 
 ---
 

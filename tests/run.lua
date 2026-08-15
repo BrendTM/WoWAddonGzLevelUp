@@ -381,6 +381,30 @@ GzLevelUpDB.announceDeaths = true
 reset(); fire("UNIT_HEALTH", "party1")
 check("a corpse we never saw alive stays silent", #timers, 0)
 
+section("death reply: a member whose data is still loading")
+-- Someone we have never grouped with: on joining, the roster lists them while
+-- their data is still on its way — nameless, and reported as alive.
+world.party4 = { name = "Unknown", guid = "G-dave", level = 0, exists = true }
+fire("GROUP_ROSTER_UPDATE")
+-- Now the data arrives: they have been lying dead the whole time.
+world.party4.name, world.party4.level, world.party4.dead = "Dave", 43, true
+reset(); fire("UNIT_NAME_UPDATE", "party4"); fire("UNIT_HEALTH", "party4")
+check("a corpse that was still loading stays silent", #timers, 0)
+revive("party4")
+reset(); die("party4"); runTimers()
+check("their next death is announced", lastSent(), "F Dave")
+
+-- Health can arrive before the name does, without any UNIT_NAME_UPDATE in
+-- between; that must not leave an "alive" baseline behind either.
+runTimers() -- close any open batch, so the timer count below is only ours
+world.party4 = { name = "Unknown", guid = "G-erin", level = 0, exists = true }
+fire("GROUP_ROSTER_UPDATE")
+reset(); fire("UNIT_HEALTH", "party4")
+world.party4.name, world.party4.level, world.party4.dead = "Erin", 44, true
+fire("UNIT_HEALTH", "party4")
+check("no baseline while the name is missing", #timers, 0)
+world.party4 = nil
+
 section("death reply: delay and raid chat")
 revive("party1")
 GzLevelUpDB.deathDelay = 5
@@ -436,6 +460,128 @@ check("delay all reaches deaths", GzLevelUpDB.deathDelay, 2)
 check("delay all reaches own death", GzLevelUpDB.selfDeathDelay, 2)
 check("delay all reaches the wipe", GzLevelUpDB.wipeDelay, 2)
 check("delay all still reaches level-ups", GzLevelUpDB.groupDelay, 2)
+
+section("rez reply: a member is back on their feet")
+GzLevelUpDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+check("member rez off by default", GzLevelUpDB.announceRez, false)
+check("own rez off by default", GzLevelUpDB.announceSelfRez, false)
+check("default rez message", GzLevelUpDB.rezMessage, "wb {name}")
+GzLevelUpDB.announceRez = true
+
+-- Both are lying dead and the addon has seen it.
+world.party1.dead, world.party2.dead = true, true
+fire("GROUP_ROSTER_UPDATE")
+reset(); revive("party1")
+check("a rez queues the collect timer", #timers, 1)
+runTimers()
+check("member rez announced", lastSent(), "wb Alice")
+
+-- Two rezzes inside one window share a message, exactly like deaths do.
+world.party1.dead, world.party2.dead = true, true
+fire("GROUP_ROSTER_UPDATE")
+GzLevelUpDB.rezMessage = "wb {names} ({count})"
+reset(); revive("party1"); revive("party2")
+check("both rezzes share one timer", #timers, 1)
+runTimers()
+check("batched into one message", lastSent(), "wb Alice, Bob (2)")
+GzLevelUpDB.rezMessage = "wb {name}"
+
+section("rez reply: what is not a rez")
+world.party3.dead = false
+fire("GROUP_ROSTER_UPDATE")
+reset(); fire("UNIT_HEALTH", "party3")
+check("a member who never died stays silent", #timers, 0)
+
+-- A hunter who was only feigning was never dead, so getting up is nothing.
+world.party1.dead, world.party1.feign = true, true
+fire("GROUP_ROSTER_UPDATE")
+world.party1.dead, world.party1.feign = false, false
+reset(); fire("UNIT_HEALTH", "party1")
+check("getting up from feign death is not a rez", #timers, 0)
+
+section("rez reply: my own")
+GzLevelUpDB.announceSelfRez = true
+GzLevelUpDB.selfRezMessage = "ty {name}"
+
+-- Walking back from the graveyard: nobody got me up, so there is nobody to
+-- thank and nothing to say.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+reset(); revive("player")
+check("a corpse run says nothing", #timers, 0)
+
+-- But an offered resurrect is answered, and it names whoever cast it.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice-Blackrock") -- cross-realm suffix is stripped
+reset(); revive("player")
+runTimers()
+check("thanks whoever rezzed me", lastSent(), "ty Alice")
+
+-- That offer is used up now.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+reset(); revive("player")
+check("the offer is not reused", #timers, 0)
+
+-- Declining and taking the spirit healer instead lands you at the graveyard,
+-- far from whoever offered — the game reports no "declined", so the distance is
+-- what gives it away.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+world.party1.far = true
+reset(); revive("player")
+check("an offer from far away does not count", #timers, 0)
+world.party1.far = false
+
+-- Somebody outside the group cannot be range-checked at all, so their offer is
+-- taken at face value rather than dropped.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Stranger")
+reset(); revive("player")
+runTimers()
+check("a passer-by still counts", lastSent(), "ty Stranger")
+
+-- And one that is a minute old has expired along with the game's own dialog.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Bob")
+now = now + 90
+reset(); revive("player")
+check("a stale offer does not count", #timers, 0)
+now = 0
+
+-- My line and the member line are separate, even when the person who rezzed me
+-- was rezzed in the same window: my own entry is kept apart from the name list.
+world.player.dead, world.party1.dead = true, true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+reset(); revive("player"); revive("party1")
+runTimers()
+check("both lines go out", #sent, 2)
+check("mine first, naming the rezzer", sent[1] and sent[1].msg, "ty Alice")
+check("then the member line", sent[2] and sent[2].msg, "wb Alice")
+
+section("rez reply: slash commands")
+slash("rez")
+check("rez toggles off", GzLevelUpDB.announceRez, false)
+slash("rez")
+check("rez toggles back on", GzLevelUpDB.announceRez, true)
+slash("selfrez")
+check("selfrez toggles off", GzLevelUpDB.announceSelfRez, false)
+slash("rezmsg wb {names}!")
+check("rezmsg set", GzLevelUpDB.rezMessage, "wb {names}!")
+slash("selfrezmsg ty {name}!")
+check("selfrezmsg set", GzLevelUpDB.selfRezMessage, "ty {name}!")
+slash("delay selfrez 6")
+check("delay selfrez 6", GzLevelUpDB.selfRezDelay, 6)
+check("other delays untouched", GzLevelUpDB.rezDelay, 0)
+slash("delay 3")
+check("delay all reaches rez", GzLevelUpDB.rezDelay, 3)
+check("delay all reaches my rez", GzLevelUpDB.selfRezDelay, 3)
 
 section("addon metadata (feeds the info tab)")
 local meta = GetAddOnMetadata
