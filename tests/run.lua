@@ -660,13 +660,38 @@ menu[2].func()
 check("clicking an entry switches", GzLevelUpProfilesDB.active, "Raid")
 check("and loads its settings", GzLevelUpDB.message, "gz")
 
--- The popup hands its edit box to OnAccept; surrounding blanks are dropped.
-StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"].OnAccept({
-    editBox = { GetText = function() return "  Dungeon  " end },
-})
-check("a new profile is created from the popup", GzLevelUpProfilesDB.profiles.Dungeon ~= nil, true)
-check("with the name trimmed", GzLevelUpProfilesDB.active, "Dungeon")
-check("as a copy of the one we were on", GzLevelUpDB.message, "gz")
+-- How the dialog hands over its edit box differs between clients, and reading
+-- it the wrong way looks exactly like an empty name. All three ways a popup can
+-- offer it have to work; the middle one is what the game actually does.
+local newProfile = StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"]
+local function editBoxWith(text)
+    return { GetText = function() return text end, IsShown = function() return true end }
+end
+
+newProfile.OnAccept({ editBox = editBoxWith("  Dungeon  ") })
+check("a name on the dialog itself is read", GzLevelUpProfilesDB.profiles.Dungeon ~= nil, true)
+check("and trimmed", GzLevelUpProfilesDB.active, "Dungeon")
+check("the profile is a copy of the one we were on", GzLevelUpDB.message, "gz")
+
+-- Only reachable through the global the dialog is named after.
+StaticPopup7EditBox = editBoxWith("Named")
+newProfile.OnAccept({ GetName = function() return "StaticPopup7" end })
+check("a name behind the dialog's own name is read", GzLevelUpProfilesDB.active, "Named")
+
+-- Neither of the two: fall back to whichever popup edit box is on screen.
+StaticPopup1EditBox = editBoxWith("Shown")
+newProfile.OnAccept({})
+check("the visible popup edit box is the last resort", GzLevelUpProfilesDB.active, "Shown")
+
+-- And an empty box really is a missing name, not one we failed to find.
+StaticPopup1EditBox = editBoxWith("")
+newProfile.OnAccept({})
+check("an empty box creates nothing", GzLevelUpProfilesDB.active, "Shown")
+StaticPopup1EditBox, StaticPopup7EditBox = nil, nil
+
+slash("profile delete Named")
+slash("profile delete Shown")
+slash("profile Dungeon")
 
 -- Deleting from the tab removes the profile you are on, so it steps aside
 -- first - the slash command refuses instead, where you name it yourself.

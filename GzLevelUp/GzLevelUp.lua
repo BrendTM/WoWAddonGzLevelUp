@@ -1906,6 +1906,35 @@ local function BuildConfig()
         RefreshProfileUI()
     end
 
+    -- Reaching the edit box of a StaticPopup is not the same everywhere: some
+    -- clients hand it over as dialog.editBox, others only put it in _G under
+    -- the dialog's name. Try both, then fall back to whichever popup edit box
+    -- is on screen - getting this wrong means silently reading an empty name.
+    local function PopupEditBox(dialog)
+        if type(dialog) ~= "table" then return nil end
+
+        local box = rawget(dialog, "editBox")
+        if box then return box end
+
+        local name = dialog.GetName and dialog:GetName()
+        if type(name) == "string" then
+            box = _G[name .. "EditBox"]
+            if box then return box end
+        end
+
+        for i = 1, 4 do
+            box = _G["StaticPopup" .. i .. "EditBox"]
+            if box and box.IsShown and box:IsShown() then return box end
+        end
+        return nil
+    end
+
+    local function PopupName(dialog)
+        local box  = PopupEditBox(dialog)
+        local text = box and box:GetText() or ""
+        return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+    end
+
     StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"] = {
         text = L.PROFILE_NEW_PROMPT,
         button1 = ACCEPT,
@@ -1917,9 +1946,7 @@ local function BuildConfig()
         hideOnEscape = true,
         preferredIndex = 3,
         OnAccept = function(self)
-            local box  = self and self.editBox
-            local name = box and box:GetText() or ""
-            name = name:gsub("^%s+", ""):gsub("%s+$", "")
+            local name = PopupName(self)
             Commit()
             if CreateProfile(name) then
                 RefreshProfileUI()
@@ -1930,6 +1957,13 @@ local function BuildConfig()
                 print(PREFIX .. L.PROFILE_EXISTS:format(name))
             end
         end,
+        -- Enter in the text field should do the same as clicking Accept.
+        EditBoxOnEnterPressed = function(self)
+            local dialog = self:GetParent()
+            StaticPopupDialogs["GZLEVELUP_NEW_PROFILE"].OnAccept(dialog)
+            dialog:Hide()
+        end,
+        EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
     }
 
     StaticPopupDialogs["GZLEVELUP_DELETE_PROFILE"] = {
