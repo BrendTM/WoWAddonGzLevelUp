@@ -1600,27 +1600,15 @@ local function BuildConfig()
         UpdateQuickPanel()
     end)
 
-    local gzLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    gzLabel:SetPoint("TOPLEFT", 36, -42)
-    gzLabel:SetText(L.QUICK_GZ_LABEL)
+    local buttonsLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    buttonsLabel:SetPoint("TOPLEFT", 36, -34)
+    buttonsLabel:SetText(L.QUICK_BUTTONS_LABEL)
 
-    local gzEdit = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
-    gzEdit:SetSize(80, 22)
-    gzEdit:SetPoint("TOPLEFT", 42, -62)
-    gzEdit:SetAutoFocus(false)
-    gzEdit:SetMaxLetters(40)
+    local buttonsHelp = CreateHelpIcon(panelPage, L.QUICK_BUTTONS_HELP_TITLE, L.QUICK_BUTTONS_HELP)
+    buttonsHelp:SetPoint("LEFT", buttonsLabel, "RIGHT", 6, 0)
 
-    local tyLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    tyLabel:SetPoint("TOPLEFT", panelPage, "TOP", 12, -42)
-    tyLabel:SetText(L.QUICK_TY_LABEL)
-
-    local tyEdit = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
-    tyEdit:SetSize(80, 22)
-    tyEdit:SetPoint("TOPLEFT", panelPage, "TOP", 18, -62)
-    tyEdit:SetAutoFocus(false)
-    tyEdit:SetMaxLetters(40)
-
-    -- Live-update the button labels in the panel.
+    -- Writes a button's text everywhere it is visible at once: into the DB, and
+    -- onto the button in the panel if that one is on screen.
     local function LiveButtonText(index, text)
         local list = GzLevelUpDB.quickPanelButtons
         if not list then return end
@@ -1630,12 +1618,72 @@ local function BuildConfig()
         end
     end
 
-    gzEdit:SetScript("OnTextChanged", function(self) LiveButtonText(1, self:GetText()) end)
-    tyEdit:SetScript("OnTextChanged", function(self) LiveButtonText(2, self:GetText()) end)
+    -- One field per button, laid out exactly like the panel is, so the grid you
+    -- see here is the grid you get. Only rows x columns of them are shown.
+    local BOX_W, BOX_GAP, BOX_ROW = 80, 12, 28
+    local quickEdits = {}
+    for i = 1, MAX_GRID * MAX_GRID do
+        local e = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
+        e:SetSize(BOX_W, 22)
+        e:SetAutoFocus(false)
+        e:SetMaxLetters(40)
+        e:SetScript("OnTextChanged", function(self) LiveButtonText(i, self:GetText()) end)
+        quickEdits[i] = e
+    end
+
+    local function LayoutQuickEdits()
+        local rows = ClampGrid(GzLevelUpDB.quickPanelRows)
+        local cols = ClampGrid(GzLevelUpDB.quickPanelCols)
+        for i, e in ipairs(quickEdits) do
+            if i <= rows * cols then
+                local row, col = math.floor((i - 1) / cols), (i - 1) % cols
+                e:ClearAllPoints()
+                e:SetPoint("TOPLEFT", 42 + col * (BOX_W + BOX_GAP), -54 - row * BOX_ROW)
+                e:SetText(ButtonText(i))
+                e:SetCursorPosition(0)
+                e:Show()
+            else
+                e:Hide()
+            end
+        end
+    end
+
+    -- The two sliders that size the grid. Shrinking it only hides the fields,
+    -- it does not forget what they said - grow it again and the texts are back.
+    local function CreateGridSlider(name, y, labelText, key)
+        local s = CreateFrame("Slider", name, panelPage, "OptionsSliderTemplate")
+        s:SetPoint("TOPLEFT", 40, y)
+        s:SetPoint("TOPRIGHT", -40, y)
+        s:SetMinMaxValues(1, MAX_GRID)
+        s:SetValueStep(1)
+        s:SetObeyStepOnDrag(true)
+
+        local low  = _G[name .. "Low"]  or s.Low
+        local high = _G[name .. "High"] or s.High
+        s.valueText = _G[name .. "Text"] or s.Text
+        if low  then low:SetText("1") end
+        if high then high:SetText(tostring(MAX_GRID)) end
+
+        s:SetScript("OnValueChanged", function(self, value)
+            value = ClampGrid(value)
+            GzLevelUpDB[key] = value
+            if self.valueText then
+                self.valueText:SetText(labelText .. ": " .. value)
+            end
+            LayoutQuickEdits()
+            LayoutQuickPanel()
+        end)
+        return s
+    end
+
+    local rowsSlider = CreateGridSlider("GzLevelUpRowsSlider", -172,
+                                        L.QUICK_ROWS_LABEL, "quickPanelRows")
+    local colsSlider = CreateGridSlider("GzLevelUpColsSlider", -212,
+                                        L.QUICK_COLS_LABEL, "quickPanelCols")
 
     local scaleSlider = CreateFrame("Slider", "GzLevelUpScaleSlider", panelPage, "OptionsSliderTemplate")
-    scaleSlider:SetPoint("TOPLEFT", 40, -130)
-    scaleSlider:SetPoint("TOPRIGHT", -40, -130)
+    scaleSlider:SetPoint("TOPLEFT", 40, -252)
+    scaleSlider:SetPoint("TOPRIGHT", -40, -252)
     scaleSlider:SetMinMaxValues(MIN_SCALE, MAX_SCALE)
     scaleSlider:SetValueStep(0.05)
     scaleSlider:SetObeyStepOnDrag(true)
@@ -1659,9 +1707,8 @@ local function BuildConfig()
     local function SetQuickEnabled(on)
         local r, g, b = 1, 0.82, 0
         if not on then r, g, b = 0.5, 0.5, 0.5 end
-        gzLabel:SetTextColor(r, g, b)
-        tyLabel:SetTextColor(r, g, b)
-        for _, e in ipairs({ gzEdit, tyEdit }) do
+        buttonsLabel:SetTextColor(r, g, b)
+        for _, e in ipairs(quickEdits) do
             e:EnableMouse(on)
             if on then
                 e:SetTextColor(1, 1, 1)
@@ -1670,7 +1717,10 @@ local function BuildConfig()
                 e:SetTextColor(0.5, 0.5, 0.5)
             end
         end
-        if on then scaleSlider:Enable() else scaleSlider:Disable() end
+        for _, s in ipairs({ rowsSlider, colsSlider, scaleSlider }) do
+            if on then s:Enable() else s:Disable() end
+            if s.valueText then s.valueText:SetTextColor(r, g, b) end
+        end
         if scaleText then scaleText:SetTextColor(r, g, b) end
     end
 
@@ -1847,8 +1897,9 @@ local function BuildConfig()
         GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
         GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
         GzLevelUpDB.replyWindow     = ClampDelay(windowRow.edit:GetText())
-        LiveButtonText(1, gzEdit:GetText())
-        LiveButtonText(2, tyEdit:GetText())
+        for i, e in ipairs(quickEdits) do
+            if e:IsShown() then LiveButtonText(i, e:GetText()) end
+        end
         LayoutQuickPanel()
     end
 
@@ -1873,7 +1924,9 @@ local function BuildConfig()
 
     replyEdit:SetScript("OnTextChanged", UpdatePreview)
 
-    for _, e in ipairs({ gzEdit, tyEdit, replyEdit, triggerEdit }) do
+    local focusEdits = { replyEdit, triggerEdit }
+    for _, e in ipairs(quickEdits) do focusEdits[#focusEdits + 1] = e end
+    for _, e in ipairs(focusEdits) do
         e:SetScript("OnEditFocusLost", Commit)
         e:SetScript("OnEnterPressed", e.ClearFocus)
         e:SetScript("OnEscapePressed", e.ClearFocus)
@@ -1943,10 +1996,9 @@ local function BuildConfig()
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
 
         quickCB:SetChecked(GzLevelUpDB.quickPanelEnabled)
-        gzEdit:SetText(ButtonText(1))
-        gzEdit:SetCursorPosition(0)
-        tyEdit:SetText(ButtonText(2))
-        tyEdit:SetCursorPosition(0)
+        rowsSlider:SetValue(ClampGrid(GzLevelUpDB.quickPanelRows))
+        colsSlider:SetValue(ClampGrid(GzLevelUpDB.quickPanelCols))
+        LayoutQuickEdits() -- fills the fields from the button list as it goes
         SetQuickEnabled(GzLevelUpDB.quickPanelEnabled)
         scaleSlider:SetValue(ClampScale(GzLevelUpDB.quickPanelScale))
         UpdatePreview()

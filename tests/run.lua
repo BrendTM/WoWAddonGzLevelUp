@@ -782,6 +782,29 @@ check("the profile is gone", GzLevelUpProfilesDB.profiles.Dungeon, nil)
 check("and we landed on another one", GzLevelUpProfilesDB.active, "Default")
 check("whose settings are loaded", GzLevelUpDB.message, "Gz {name}!")
 
+section("quick panel: the grid in the config window")
+-- The two sliders are the only way to size the grid, so they have to reach all
+-- the way through to the panel.
+GzLevelUpDB.quickPanelButtons = { "a", "b", "c", "d", "e", "f" }
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 2)
+GzLevelUpColsSlider:GetScript("OnValueChanged")(GzLevelUpColsSlider, 3)
+check("the rows slider writes through", GzLevelUpDB.quickPanelRows, 2)
+check("and the columns slider too", GzLevelUpDB.quickPanelCols, 3)
+check("the panel followed", panel:GetWidth(), panelW(3))
+check("with all six buttons", panel.buttons[6]:IsShown(), true)
+check("carrying the texts", panel.buttons[6]:GetText(), "f")
+
+-- Shrinking the grid hides fields; it must not throw their texts away.
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 1)
+GzLevelUpColsSlider:GetScript("OnValueChanged")(GzLevelUpColsSlider, 2)
+check("the panel shrank back", panel:GetWidth(), panelW(2))
+check("but the hidden texts are kept", GzLevelUpDB.quickPanelButtons[6], "f")
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 2)
+check("and come back when it grows again", panel.buttons[5]:GetText(), "e")
+
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 1)
+GzLevelUpDB.quickPanelButtons = { "gz", "ty" }
+
 section("addon metadata (feeds the info tab)")
 local meta = GetAddOnMetadata
 check("version present", type(meta("GzLevelUp", "Version")), "string")
