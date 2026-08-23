@@ -785,6 +785,21 @@ check("the profile is gone", GzLevelUpProfilesDB.profiles.Dungeon, nil)
 check("and we landed on another one", GzLevelUpProfilesDB.active, "Default")
 check("whose settings are loaded", GzLevelUpDB.message, "Gz {name}!")
 
+section("profiles: one stored before the button grid existed")
+-- A profile made by an older build has the two fixed button keys and none of
+-- the grid ones. Switching to it has to bring it up to date on the way in,
+-- otherwise the panel would come up blank.
+GzLevelUpProfilesDB.profiles.Legacy = {
+    message = "Gz {name}!", gzButtonMessage = "grats", tyButtonMessage = "thx",
+}
+slash("profile Legacy")
+check("its two buttons move onto the grid",
+      table.concat(GzLevelUpDB.quickPanelButtons, ","), "grats,thx")
+check("and it gets a grid to hold them", GzLevelUpDB.quickPanelCols, 2)
+check("the old keys are gone", GzLevelUpDB.gzButtonMessage, nil)
+slash("profile Dungeon")
+slash("profile delete Legacy")
+
 section("quick panel: the grid in the config window")
 -- The two sliders are the only way to size the grid, so they have to reach all
 -- the way through to the panel.
