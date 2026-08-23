@@ -667,10 +667,13 @@ check("a name cannot be taken twice", GzLevelUpProfilesDB.active, "Raid")
 -- The button list is a table, so every profile needs its own: handing the
 -- same one to two profiles would let editing one quietly edit the other.
 GzLevelUpDB.quickPanelButtons[1] = "yo"
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 2, 4
 slash("profile Default")
 check("Default keeps its own button list", GzLevelUpDB.quickPanelButtons[1], "gz")
+check("and its own grid", GzLevelUpDB.quickPanelRows .. "x" .. GzLevelUpDB.quickPanelCols, "1x2")
 slash("profile Raid")
 check("and Raid keeps the edit", GzLevelUpDB.quickPanelButtons[1], "yo")
+check("and its bigger grid", GzLevelUpDB.quickPanelRows .. "x" .. GzLevelUpDB.quickPanelCols, "2x4")
 
 section("profiles: where a window sits is not a setting")
 GzLevelUpDB.configPos = { point = "CENTER", x = 12, y = 34 }
