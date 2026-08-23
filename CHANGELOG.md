@@ -30,6 +30,11 @@ it is written for players rather than for the diff.
   whether it takes your current settings over or starts from the settings the
   addon ships with. Where you dragged the windows is deliberately not part of a
   profile — the panels stay where they are when you switch.
+- **Every character places the windows itself.** Where the quick panel, the
+  config window and the minimap button sit is now saved per character instead
+  of once for the whole account, so the panel can be bottom right on your
+  hunter and next to the raid frames on your healer. Characters that have not
+  moved anything yet start from wherever you had it before.
 - New command: `/gz profile`, with `new` and `delete`.
 - **The quick panel holds as many buttons as you want.** Two sliders on the
   Quick panel tab set rows and columns, up to 4 × 4, and every button gets its

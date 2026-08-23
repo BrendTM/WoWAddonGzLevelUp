@@ -250,9 +250,11 @@ all of them plus *New* and *Delete*; `/gz profile` does the same from chat.
   taking the current settings over — ticked by default, because "like this,
   but …" is what you usually want. Untick it and the profile starts from the
   settings the addon ships with. `/gz profile new <name>` always copies.
-- **Window positions are not part of a profile.** Where you dragged the config
-  window and the quick panel, and where the minimap button sits, stay put when
-  you switch — carrying those along would throw the panels across the screen.
+- **Window positions are not part of a profile, they belong to the character.**
+  Where you dragged the config window and the quick panel, and where the
+  minimap button sits, is saved per character, so your hunter can keep the
+  panel bottom right while your healer has it next to the raid frames.
+  Switching profiles never moves anything.
 - **Restore defaults** only touches the profile you are on.
 
 Upgrading from a version without profiles needs no action: your settings become

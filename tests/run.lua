@@ -808,6 +808,32 @@ check("and come back when it grows again", panel.buttons[5]:GetText(), "e")
 GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 1)
 GzLevelUpDB.quickPanelButtons = { "gz", "ty" }
 
+section("placement: every character puts things where it wants them")
+-- Dragging writes to this character's own store and never back to the shared
+-- one, which is what lets two characters drift apart.
+GzLevelUpCharDB = {}
+GzLevelUpDB.quickPanelPos = { point = "CENTER", relPoint = "CENTER", x = 70, y = 80 }
+panel:SetPoint("CENTER", UIParent, "CENTER", 120, 90)
+panel:GetScript("OnDragStop")(panel)
+check("dragging stores the spot for this character",
+      GzLevelUpCharDB.quickPanelPos and GzLevelUpCharDB.quickPanelPos.x, 120)
+check("and leaves the shared one alone", GzLevelUpDB.quickPanelPos.x, 70)
+
+-- A character that has never placed anything starts from the shared value,
+-- so upgrading finds the windows where they have always been.
+GzLevelUpCharDB.configPos = nil
+GzLevelUpDB.configPos = { point = "CENTER", relPoint = "CENTER", x = 12, y = 34 }
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("an unplaced window inherits the shared spot",
+      select(4, GzLevelUpConfigFrame:GetPoint()), 12)
+
+GzLevelUpCharDB.configPos = { point = "CENTER", relPoint = "CENTER", x = 99, y = 5 }
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("once placed, this character's own spot wins",
+      select(4, GzLevelUpConfigFrame:GetPoint()), 99)
+check("and restoring defaults still moves nothing",
+      GzLevelUpCharDB.configPos and GzLevelUpCharDB.configPos.x, 99)
+
 section("addon metadata (feeds the info tab)")
 local meta = GetAddOnMetadata
 check("version present", type(meta("GzLevelUp", "Version")), "string")
@@ -819,6 +845,9 @@ check("github link is a url",
       (meta("GzLevelUp", "X-Website") or ""):match("^https://") ~= nil, true)
 check("saved variables declared", meta("GzLevelUp", "SavedVariables"),
       "GzLevelUpDB, GzLevelUpProfilesDB")
+-- Without this line the game would never hand a character its own placements.
+check("per-character variables declared",
+      meta("GzLevelUp", "SavedVariablesPerCharacter"), "GzLevelUpCharDB")
 
 section("minimap button")
 check("off by default", GzLevelUpDB.minimapEnabled, false)

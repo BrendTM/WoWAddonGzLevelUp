@@ -192,6 +192,10 @@ local function Migrate()
 end
 
 local function ApplyDefaults()
+    -- Saved variables are restored after this file has run, so the table the
+    -- top of the file created may already have been replaced by a saved one -
+    -- or by nothing at all, on a character that has never seen the addon.
+    GzLevelUpCharDB = GzLevelUpCharDB or {}
     Migrate()
     for k, v in pairs(defaults) do
         if GzLevelUpDB[k] == nil then
@@ -222,16 +226,35 @@ local function ShortName(name)
     return name:match("^([^-]+)") or name
 end
 
--- Remembers where the user dragged a frame to, under the given DB key.
+-- Where things sit on screen is saved per character, not per account: the same
+-- panel may belong in a different corner on a hunter than on a healer, and it
+-- has nothing to do with which settings profile is active.
+--
+-- Until 1.3 these lived in the account-wide DB, so that value is still read as
+-- the starting point for a character that has not placed anything yet. It is
+-- never written again, which is what lets the characters drift apart.
+GzLevelUpCharDB = GzLevelUpCharDB or {}
+
+local function GetPlacement(key)
+    local mine = GzLevelUpCharDB[key]
+    if mine ~= nil then return mine end
+    return GzLevelUpDB[key]
+end
+
+local function SetPlacement(key, value)
+    GzLevelUpCharDB[key] = value
+end
+
+-- Remembers where the user dragged a frame to, under the given key.
 -- Anchoring is always relative to UIParent so the value survives a reload.
 local function SavePos(frame, key)
     local point, _, relPoint, x, y = frame:GetPoint()
-    GzLevelUpDB[key] = { point = point, relPoint = relPoint, x = x, y = y }
+    SetPlacement(key, { point = point, relPoint = relPoint, x = x, y = y })
 end
 
 -- Counterpart to SavePos; centers the frame if there is nothing stored yet.
 local function RestorePos(frame, key)
-    local pos = GzLevelUpDB[key]
+    local pos = GetPlacement(key)
     frame:ClearAllPoints()
     if pos and pos.point then
         frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
@@ -826,7 +849,7 @@ local MINIMAP_RADIUS = 80
 
 local function PlaceMinimapButton()
     if not minimapButton then return end
-    local angle = tonumber(GzLevelUpDB.minimapAngle) or 210
+    local angle = tonumber(GetPlacement("minimapAngle")) or 210
     local rad = math.rad(angle)
     minimapButton:SetPoint("CENTER", Minimap, "CENTER",
         MINIMAP_RADIUS * math.cos(rad), MINIMAP_RADIUS * math.sin(rad))
@@ -838,7 +861,7 @@ local function DragMinimapButton(self)
     local scale = Minimap:GetEffectiveScale()
     local px, py = GetCursorPosition()
     px, py = px / scale, py / scale
-    GzLevelUpDB.minimapAngle = math.deg(math.atan2(py - cy, px - cx))
+    SetPlacement("minimapAngle", math.deg(math.atan2(py - cy, px - cx)))
     self:ClearAllPoints()
     PlaceMinimapButton()
 end

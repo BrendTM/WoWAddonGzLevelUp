@@ -152,6 +152,20 @@ local function frameStub()
         Show    = function(o) o._shown = true end,
         Hide    = function(o) o._shown = false end,
         IsShown = function(o) return o._shown and true or false end,
+        -- Anchors, so a test can read back where a frame was put. Both call
+        -- shapes the addon uses: SetPoint(point [, x, y]) and the long
+        -- SetPoint(point, relativeTo, relPoint, x, y).
+        SetPoint = function(o, point, a, b, c, d)
+            if type(a) == "table" then
+                o._point, o._relPoint, o._x, o._y = point, b, c or 0, d or 0
+            else
+                o._point, o._relPoint, o._x, o._y = point, point, a or 0, b or 0
+            end
+        end,
+        GetPoint = function(o) return o._point, nil, o._relPoint, o._x, o._y end,
+        ClearAllPoints = function(o)
+            o._point, o._relPoint, o._x, o._y = nil, nil, 0, 0
+        end,
         SetWidth  = function(o, w) o._w = w end,
         SetHeight = function(o, h) o._h = h end,
         SetSize   = function(o, w, h) o._w, o._h = w, h end,

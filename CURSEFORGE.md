@@ -156,7 +156,8 @@ what the range check notices.
   character you are on to it, so logging in on that character picks it up
   again. When you create one, a checkbox decides whether it takes the current
   settings over or starts from the addon's defaults. Window positions are not
-  part of a profile, so nothing jumps around when you switch.
+  part of a profile — they belong to the character, so nothing jumps around
+  when you switch and each character can place the panel where it suits.
 - **Restore defaults** — resets the profile you are on, after a confirmation
   prompt.
 
