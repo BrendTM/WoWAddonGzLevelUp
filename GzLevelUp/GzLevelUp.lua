@@ -40,10 +40,13 @@ local defaults = {
     rezCollect        = 3,                    -- batch resurrections for this long
     quickPanelEnabled = false,               -- show floating gz/ty panel?
     quickPanelScale   = 1.0,                 -- panel scale (0.5 - 2.0)
+    -- The panel's buttons are a grid you size yourself. 1x2 is what the panel
+    -- has always been, so nothing moves for anyone who does not touch it.
+    quickPanelRows    = 1,
+    quickPanelCols    = 2,
+    quickPanelButtons = { "gz", "ty" },       -- one text per button, row by row
     minimapEnabled    = false,               -- show the minimap button?
     minimapAngle      = 210,                 -- its position around the minimap
-    gzButtonMessage   = "gz",                -- text of the left button
-    tyButtonMessage   = "ty",                -- text of the right button
     -- Auto reply: say "ty" once after people congratulated my own level-up.
     autoReplyEnabled  = false,
     replyMessage      = L.DEFAULT_REPLY,
@@ -130,6 +133,17 @@ local function ClampScale(n)
     return n
 end
 
+-- One side of the quick panel's button grid. The ceiling is what still fits
+-- both on screen as a panel and as a row of text fields in the config window.
+local MAX_GRID = 4
+
+local function ClampGrid(n)
+    n = math.floor((tonumber(n) or 1) + 0.5)
+    if n < 1 then n = 1 end
+    if n > MAX_GRID then n = MAX_GRID end
+    return n
+end
+
 -- GUID -> last known level. Keyed by GUID instead of a unit token so that
 -- "party1" isn't later mistakenly attributed to a different player.
 local knownLevels = {}
@@ -141,24 +155,47 @@ local knownDead = {}
 
 local PREFIX = "|cff33ff99GzLevelUp|r: "
 
--- The single global delay (delayEnabled + delaySeconds) became one delay per
--- category. Carry the old value over to all three, then drop the old keys.
+-- Settings are plain values with one exception, the panel's button list, so
+-- copying one has to go a level deep. Handing the same table to two profiles
+-- would let editing one of them change the other.
+local function CopyValue(v)
+    if type(v) ~= "table" then return v end
+    local out = {}
+    for k, item in pairs(v) do out[k] = item end
+    return out
+end
+
 local function Migrate()
-    if GzLevelUpDB.delaySeconds == nil and GzLevelUpDB.delayEnabled == nil then return end
-    local old = GzLevelUpDB.delayEnabled and ClampDelay(GzLevelUpDB.delaySeconds) or 0
-    for _, kind in ipairs(CATEGORY_ORDER) do
-        local key = CATEGORY[kind].delay
-        if GzLevelUpDB[key] == nil then GzLevelUpDB[key] = old end
+    -- The single global delay (delayEnabled + delaySeconds) became one delay
+    -- per category. Carry the old value over to all three, then drop the keys.
+    if GzLevelUpDB.delaySeconds ~= nil or GzLevelUpDB.delayEnabled ~= nil then
+        local old = GzLevelUpDB.delayEnabled and ClampDelay(GzLevelUpDB.delaySeconds) or 0
+        for _, kind in ipairs(CATEGORY_ORDER) do
+            local key = CATEGORY[kind].delay
+            if GzLevelUpDB[key] == nil then GzLevelUpDB[key] = old end
+        end
+        GzLevelUpDB.delayEnabled = nil
+        GzLevelUpDB.delaySeconds = nil
     end
-    GzLevelUpDB.delayEnabled = nil
-    GzLevelUpDB.delaySeconds = nil
+
+    -- The panel's two fixed buttons became a grid. Whatever the two of them
+    -- said stays on the first two buttons, so the panel looks unchanged.
+    if GzLevelUpDB.quickPanelButtons == nil
+        and (GzLevelUpDB.gzButtonMessage ~= nil or GzLevelUpDB.tyButtonMessage ~= nil) then
+        GzLevelUpDB.quickPanelButtons = {
+            GzLevelUpDB.gzButtonMessage or "gz",
+            GzLevelUpDB.tyButtonMessage or "ty",
+        }
+    end
+    GzLevelUpDB.gzButtonMessage = nil
+    GzLevelUpDB.tyButtonMessage = nil
 end
 
 local function ApplyDefaults()
     Migrate()
     for k, v in pairs(defaults) do
         if GzLevelUpDB[k] == nil then
-            GzLevelUpDB[k] = v
+            GzLevelUpDB[k] = CopyValue(v)
         end
     end
 end
@@ -685,17 +722,61 @@ local function ManualSend(text)
     end
 end
 
-local function RefreshQuickButtons()
-    if not quickPanel then return end
-    quickPanel.gzBtn:SetText(GzLevelUpDB.gzButtonMessage)
-    quickPanel.tyBtn:SetText(GzLevelUpDB.tyButtonMessage)
+-- The text on button i, counting through the grid row by row.
+local function ButtonText(i)
+    local list = GzLevelUpDB.quickPanelButtons
+    return (list and list[i]) or ""
+end
+
+local QUICK_BTN_W, QUICK_BTN_H = 62, 24
+local QUICK_PAD, QUICK_GAP     = 8, 8
+local QUICK_ROW_GAP            = 4
+local QUICK_TOP                = 22 -- the title doubles as the drag handle
+
+local function NewQuickButton(p, i)
+    local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    b:SetSize(QUICK_BTN_W, QUICK_BTN_H)
+    -- Reads the text when clicked rather than capturing it, so retyping a
+    -- button's message does not need the button rebuilt.
+    b:SetScript("OnClick", function() ManualSend(ButtonText(i)) end)
+    p.buttons[i] = b
+    return b
+end
+
+-- Sizes the panel to the configured grid and puts the buttons in it. Frames
+-- cannot be destroyed in WoW, so shrinking the grid hides the leftovers and
+-- growing it again reuses them.
+local function LayoutQuickPanel()
+    local p = quickPanel
+    if not p then return end
+
+    local rows = ClampGrid(GzLevelUpDB.quickPanelRows)
+    local cols = ClampGrid(GzLevelUpDB.quickPanelCols)
+
+    p:SetSize(QUICK_PAD * 2 + cols * QUICK_BTN_W + (cols - 1) * QUICK_GAP,
+              QUICK_PAD + QUICK_TOP + rows * QUICK_BTN_H + (rows - 1) * QUICK_ROW_GAP)
+
+    for i = 1, MAX_GRID * MAX_GRID do
+        local btn = p.buttons[i]
+        if i <= rows * cols then
+            btn = btn or NewQuickButton(p, i)
+            local row, col = math.floor((i - 1) / cols), (i - 1) % cols
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT",
+                         QUICK_PAD + col * (QUICK_BTN_W + QUICK_GAP),
+                         -(QUICK_TOP + row * (QUICK_BTN_H + QUICK_ROW_GAP)))
+            btn:SetText(ButtonText(i))
+            btn:Show()
+        elseif btn then
+            btn:Hide()
+        end
+    end
 end
 
 local function CreateQuickPanel()
     if quickPanel then return quickPanel end
 
     local p = CreateFrame("Frame", "GzLevelUpQuickPanel", UIParent, "BackdropTemplate")
-    p:SetSize(148, 54)
     p:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -719,29 +800,18 @@ local function CreateQuickPanel()
     handle:SetPoint("TOP", 0, -8)
     handle:SetText("GzLevelUp")
 
-    local gzBtn = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    gzBtn:SetSize(62, 24)
-    gzBtn:SetPoint("BOTTOMLEFT", 8, 8)
-    gzBtn:SetScript("OnClick", function() ManualSend(GzLevelUpDB.gzButtonMessage) end)
-
-    local tyBtn = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    tyBtn:SetSize(62, 24)
-    tyBtn:SetPoint("BOTTOMRIGHT", -8, 8)
-    tyBtn:SetScript("OnClick", function() ManualSend(GzLevelUpDB.tyButtonMessage) end)
-
-    p.gzBtn = gzBtn
-    p.tyBtn = tyBtn
+    p.buttons = {}
 
     quickPanel = p
     p:SetScale(ClampScale(GzLevelUpDB.quickPanelScale))
     RestorePos(p, "quickPanelPos")
-    RefreshQuickButtons()
+    LayoutQuickPanel()
     return p
 end
 
 local function UpdateQuickPanel()
     local p = CreateQuickPanel()
-    RefreshQuickButtons()
+    LayoutQuickPanel()
     if GzLevelUpDB.quickPanelEnabled then p:Show() else p:Hide() end
 end
 
@@ -860,7 +930,7 @@ local ReloadConfigUI -- set by BuildConfig, once the window exists
 
 local function CopySettings(from, into)
     for k, v in pairs(from) do
-        if not NOT_IN_PROFILE[k] then into[k] = v end
+        if not NOT_IN_PROFILE[k] then into[k] = CopyValue(v) end
     end
     return into
 end
@@ -1551,12 +1621,17 @@ local function BuildConfig()
     tyEdit:SetMaxLetters(40)
 
     -- Live-update the button labels in the panel.
-    gzEdit:SetScript("OnTextChanged", function(self)
-        if quickPanel then quickPanel.gzBtn:SetText(self:GetText()) end
-    end)
-    tyEdit:SetScript("OnTextChanged", function(self)
-        if quickPanel then quickPanel.tyBtn:SetText(self:GetText()) end
-    end)
+    local function LiveButtonText(index, text)
+        local list = GzLevelUpDB.quickPanelButtons
+        if not list then return end
+        list[index] = text
+        if quickPanel and quickPanel.buttons[index] then
+            quickPanel.buttons[index]:SetText(text)
+        end
+    end
+
+    gzEdit:SetScript("OnTextChanged", function(self) LiveButtonText(1, self:GetText()) end)
+    tyEdit:SetScript("OnTextChanged", function(self) LiveButtonText(2, self:GetText()) end)
 
     local scaleSlider = CreateFrame("Slider", "GzLevelUpScaleSlider", panelPage, "OptionsSliderTemplate")
     scaleSlider:SetPoint("TOPLEFT", 40, -130)
@@ -1772,9 +1847,9 @@ local function BuildConfig()
         GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
         GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
         GzLevelUpDB.replyWindow     = ClampDelay(windowRow.edit:GetText())
-        GzLevelUpDB.gzButtonMessage = gzEdit:GetText()
-        GzLevelUpDB.tyButtonMessage = tyEdit:GetText()
-        RefreshQuickButtons()
+        LiveButtonText(1, gzEdit:GetText())
+        LiveButtonText(2, tyEdit:GetText())
+        LayoutQuickPanel()
     end
 
     local function WireBlock(block, cat)
@@ -1868,9 +1943,9 @@ local function BuildConfig()
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
 
         quickCB:SetChecked(GzLevelUpDB.quickPanelEnabled)
-        gzEdit:SetText(GzLevelUpDB.gzButtonMessage)
+        gzEdit:SetText(ButtonText(1))
         gzEdit:SetCursorPosition(0)
-        tyEdit:SetText(GzLevelUpDB.tyButtonMessage)
+        tyEdit:SetText(ButtonText(2))
         tyEdit:SetCursorPosition(0)
         SetQuickEnabled(GzLevelUpDB.quickPanelEnabled)
         scaleSlider:SetValue(ClampScale(GzLevelUpDB.quickPanelScale))

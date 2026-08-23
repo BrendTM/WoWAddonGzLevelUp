@@ -133,17 +133,25 @@ end
 -- indexable, so a method call (frame:SetPoint(...)) and a sub-widget lookup
 -- (slider.Low:SetText(...)) both work without knowing which one the addon meant.
 local function frameStub()
-    local self = { _w = 0, _h = 0, _text = "", _children = {} }
+    local self = { _w = 0, _h = 0, _text = "", _children = {}, _scripts = {} }
     local real = {
-        SetScript = function(_, script, fn)
+        SetScript = function(o, script, fn)
             if script == "OnEvent" then handler = fn end
+            o._scripts[script] = fn
         end,
+        -- Kept so a test can click a button: GetScript("OnClick")().
+        GetScript = function(o, script) return o._scripts[script] end,
         SetText   = function(o, s) o._text = s or "" end,
         GetText   = function(o) return o._text end,
         -- Real, because the addon branches on it: an auto-stub would read as
         -- "checked" no matter what.
         SetChecked = function(o, v) o._checked = v and true or false end,
         GetChecked = function(o) return o._checked end,
+        -- Same for visibility, so a test can tell which of the pooled quick
+        -- panel buttons are actually on screen.
+        Show    = function(o) o._shown = true end,
+        Hide    = function(o) o._shown = false end,
+        IsShown = function(o) return o._shown and true or false end,
         SetWidth  = function(o, w) o._w = w end,
         SetHeight = function(o, h) o._h = h end,
         SetSize   = function(o, w, h) o._w, o._h = w, h end,

@@ -583,6 +583,58 @@ slash("delay 3")
 check("delay all reaches rez", GzLevelUpDB.rezDelay, 3)
 check("delay all reaches my rez", GzLevelUpDB.selfRezDelay, 3)
 
+section("quick panel: the button grid")
+fire("PLAYER_ENTERING_WORLD")
+local panel = GzLevelUpQuickPanel
+local PAD, BTN_W, BTN_H, GAP, ROW_GAP, TOP = 8, 62, 24, 8, 4, 22
+local function panelW(cols) return PAD * 2 + cols * BTN_W + (cols - 1) * GAP end
+local function panelH(rows) return PAD + TOP + rows * BTN_H + (rows - 1) * ROW_GAP end
+
+check("one row of two by default",
+      GzLevelUpDB.quickPanelRows .. "x" .. GzLevelUpDB.quickPanelCols, "1x2")
+check("with the texts it always had",
+      table.concat(GzLevelUpDB.quickPanelButtons, ","), "gz,ty")
+check("the panel is the size it always was", panel:GetWidth(), panelW(2))
+check("in both directions", panel:GetHeight(), panelH(1))
+check("two buttons on screen", panel.buttons[2]:IsShown(), true)
+check("and no third one built", panel.buttons[3], nil)
+
+-- Two by three: the panel grows in both directions and fills the new slots.
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 2, 3
+GzLevelUpDB.quickPanelButtons = { "gz", "ty", "wb", "F", "brb", "omw" }
+fire("PLAYER_ENTERING_WORLD")
+check("six buttons now", panel.buttons[6]:IsShown(), true)
+check("wider", panel:GetWidth(), panelW(3))
+check("taller", panel:GetHeight(), panelH(2))
+
+-- Each button sends the text of its own slot, not of the one it was built as.
+GzLevelUpDB.quickPanelEnabled = true
+reset(); panel.buttons[5]:GetScript("OnClick")()
+check("a button sends its own slot's text", lastSent(), "brb")
+
+-- Shrinking hides the leftovers rather than leaving them floating.
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 1, 2
+fire("PLAYER_ENTERING_WORLD")
+check("the extra buttons go away", panel.buttons[6]:IsShown(), false)
+check("and the panel is back to its old size", panel:GetWidth(), panelW(2))
+
+-- Neither slider can push the grid somewhere the panel cannot follow.
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 0, 99
+fire("PLAYER_ENTERING_WORLD")
+check("a side of zero counts as one", panel:GetHeight(), panelH(1))
+check("and four is the ceiling", panel:GetWidth(), panelW(4))
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 1, 2
+GzLevelUpDB.quickPanelEnabled = false
+
+section("quick panel: upgrading from the two fixed buttons")
+GzLevelUpDB = { gzButtonMessage = "gratz!", tyButtonMessage = "thx" }
+GzLevelUpProfilesDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+check("both texts move onto the grid",
+      table.concat(GzLevelUpDB.quickPanelButtons, ","), "gratz!,thx")
+check("still one row of two", GzLevelUpDB.quickPanelCols, 2)
+check("and the old keys are dropped", GzLevelUpDB.gzButtonMessage, nil)
+
 section("profiles: upgrading from a version without them")
 -- Somebody who has been using the addon for a while: settings in the flat DB,
 -- no profile store anywhere. Nothing about that may change for them.
@@ -611,6 +663,14 @@ slash("profile Nope")
 check("an unknown name changes nothing", GzLevelUpProfilesDB.active, "Raid")
 slash("profile new Raid")
 check("a name cannot be taken twice", GzLevelUpProfilesDB.active, "Raid")
+
+-- The button list is a table, so every profile needs its own: handing the
+-- same one to two profiles would let editing one quietly edit the other.
+GzLevelUpDB.quickPanelButtons[1] = "yo"
+slash("profile Default")
+check("Default keeps its own button list", GzLevelUpDB.quickPanelButtons[1], "gz")
+slash("profile Raid")
+check("and Raid keeps the edit", GzLevelUpDB.quickPanelButtons[1], "yo")
 
 section("profiles: where a window sits is not a setting")
 GzLevelUpDB.configPos = { point = "CENTER", x = 12, y = 34 }
@@ -701,8 +761,19 @@ check("an empty name creates nothing", GzLevelUpProfilesDB.active, before)
 fillNewDialog("Dungeon", true)
 check("an existing name is refused", GzLevelUpProfilesDB.active, before)
 
+-- A profile built from the defaults must get a copy of them, not the defaults
+-- themselves: otherwise editing a button would rewrite what "default" means
+-- for every profile made from here on.
+fillNewDialog("Stock", false)
+GzLevelUpDB.quickPanelButtons[3] = "edited"
+fillNewDialog("Stock2", false)
+check("the shipped defaults cannot be edited through a profile",
+      GzLevelUpDB.quickPanelButtons[3], nil)
+
 slash("profile Dungeon")
 slash("profile delete Fresh")
+slash("profile delete Stock")
+slash("profile delete Stock2")
 
 -- Deleting from the tab removes the profile you are on, so it steps aside
 -- first - the slash command refuses instead, where you name it yourself.
