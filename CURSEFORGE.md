@@ -33,10 +33,14 @@ Lightweight, fully configurable, and built for WoW Classic / Anniversary realms.
   on their feet, collected into one message the same way. The line about *your
   own* resurrection is only sent when somebody actually got you up, and it names
   them, so `ty {name}` thanks the right person.
-- **Movable quick-button panel** (opt-in) — a small floating panel with two
-  buttons (**gz** / **ty**) that post to your group with a single click. The
-  button texts are fully configurable, the panel remembers its position, and
-  it can be resized from 50% to 200%.
+- **Settings profiles** — keep more than one set of settings and switch from a
+  dropdown on the Settings tab. Every character remembers which one it uses and
+  switches to it on login, so a healer can run different messages from a hunter.
+- **Movable quick-button panel** (opt-in) — a small floating panel whose buttons
+  post to your group with a single click. Two sliders set how many there are
+  (rows × columns, up to 4 × 4) and each one has its own text — **gz** / **ty**
+  to start with. The panel remembers its position and can be resized from 50%
+  to 200%.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
 - **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
@@ -132,8 +136,12 @@ what the range check notices.
 
 **Quick panel**
 
-- Show the floating gz/ty panel, set the two button texts, and adjust the panel
-  size with the slider.
+- Show the floating panel, size its button grid with the **Rows** and
+  **Columns** sliders (up to 4 × 4), give every button its own text, and adjust
+  the panel size with the third slider.
+- The text fields are arranged the way the panel will be, so what you type is
+  where it ends up. Making the grid smaller only hides fields — the texts come
+  back when you make it bigger again.
 
 **Settings**
 
@@ -143,7 +151,18 @@ what the range check notices.
   until you switch this on. Applies to everything it sends.
 - **Show minimap button** — opt-in. Left-click opens the settings, right-click
   toggles the quick panel, and you can drag it around the minimap.
-- **Restore defaults** — resets everything, after a confirmation prompt.
+- **Settings profile** — a dropdown with all your profiles plus *New* and
+  *Delete*. A profile is one complete set of settings; switching binds the
+  character you are on to it, so logging in on that character picks it up
+  again. When you create one, a checkbox decides whether it takes the current
+  settings over or starts from the addon's defaults. Window positions are not
+  part of a profile — they belong to the character, so nothing jumps around
+  when you switch and each character can place the panel where it suits.
+- **Restore defaults** — resets the profile you are on, after a confirmation
+  prompt.
+
+Upgrading from an older version needs no action: your existing settings become
+a profile called *Default* on the first login.
 
 **Info**
 
@@ -178,6 +197,10 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz selfrezmsg <text>` | Set the message for your own resurrection |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
 | `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
+| `/gz profile` | List the settings profiles, marking the active one |
+| `/gz profile <name>` | Switch to that profile and bind this character to it |
+| `/gz profile new <name>` | Create a profile from the current settings |
+| `/gz profile delete <name>` | Delete a profile (not the one you are on) |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |

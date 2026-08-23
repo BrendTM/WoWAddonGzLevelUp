@@ -10,9 +10,12 @@
 --   timers    - queued C_Timer.After callbacks, { sec, fn }
 --   world     - the simulated group; edit levels and dead/feign/far flags here
 --   inRaid    - flips IsInRaid()
+--   realm     - what GetRealmName() returns; with world.player.name it decides
+--               which character profiles are bound to
 --   now       - what GetTime() returns; move it forward to age things out
 --   fire()    - deliver an event to the addon
 --   runTimers() - run every queued timer callback
+--   dropdownEntries(frame) - what a dropdown menu would offer right now
 --   testPrint - the real print, since the addon's print is silenced
 
 local M = {}
@@ -50,6 +53,11 @@ function IsInGroup()   return true end
 function IsInRaid()    return inRaid end
 function GetLocale()   return "enUS" end
 
+-- Which character we are logged in as. Together with world.player.name this is
+-- what profiles are bound to, so a test can "log in" as somebody else.
+realm = "Blackrock"
+function GetRealmName() return realm end
+
 -- The clock the addon reads. Tests move `now` forward to let an offer go stale.
 now = 0
 function GetTime()     return now end
@@ -66,6 +74,27 @@ function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function StaticPopup_Show() end
 
 UIParent, StaticPopupDialogs, SlashCmdList, UISpecialFrames = {}, {}, {}, {}
+ACCEPT, CANCEL = "Accept", "Cancel"
+
+-- Dropdown menus. The init function is kept so a test can open the menu and
+-- click an entry through dropdownEntries() below.
+local dropInit = {}
+function UIDropDownMenu_Initialize(frame, fn) dropInit[frame] = fn end
+function UIDropDownMenu_SetWidth() end
+function UIDropDownMenu_SetText(frame, text) frame._dropText = text end
+function UIDropDownMenu_CreateInfo() return {} end
+function CloseDropDownMenus() end
+
+-- Collected while the init function runs, so tests see what the menu offers.
+local dropButtons
+function UIDropDownMenu_AddButton(info) dropButtons[#dropButtons + 1] = info end
+
+-- The entries a dropdown would show right now: { text, checked, func }.
+function dropdownEntries(frame)
+    dropButtons = {}
+    if dropInit[frame] then dropInit[frame](frame, 1) end
+    return dropButtons
+end
 -- The minimap button anchors to this and reads the cursor while dragging.
 Minimap = setmetatable({
     GetCenter = function() return 100, 100 end,
@@ -104,13 +133,39 @@ end
 -- indexable, so a method call (frame:SetPoint(...)) and a sub-widget lookup
 -- (slider.Low:SetText(...)) both work without knowing which one the addon meant.
 local function frameStub()
-    local self = { _w = 0, _h = 0, _text = "", _children = {} }
+    local self = { _w = 0, _h = 0, _text = "", _children = {}, _scripts = {} }
     local real = {
-        SetScript = function(_, script, fn)
+        SetScript = function(o, script, fn)
             if script == "OnEvent" then handler = fn end
+            o._scripts[script] = fn
         end,
+        -- Kept so a test can click a button: GetScript("OnClick")().
+        GetScript = function(o, script) return o._scripts[script] end,
         SetText   = function(o, s) o._text = s or "" end,
         GetText   = function(o) return o._text end,
+        -- Real, because the addon branches on it: an auto-stub would read as
+        -- "checked" no matter what.
+        SetChecked = function(o, v) o._checked = v and true or false end,
+        GetChecked = function(o) return o._checked end,
+        -- Same for visibility, so a test can tell which of the pooled quick
+        -- panel buttons are actually on screen.
+        Show    = function(o) o._shown = true end,
+        Hide    = function(o) o._shown = false end,
+        IsShown = function(o) return o._shown and true or false end,
+        -- Anchors, so a test can read back where a frame was put. Both call
+        -- shapes the addon uses: SetPoint(point [, x, y]) and the long
+        -- SetPoint(point, relativeTo, relPoint, x, y).
+        SetPoint = function(o, point, a, b, c, d)
+            if type(a) == "table" then
+                o._point, o._relPoint, o._x, o._y = point, b, c or 0, d or 0
+            else
+                o._point, o._relPoint, o._x, o._y = point, point, a or 0, b or 0
+            end
+        end,
+        GetPoint = function(o) return o._point, nil, o._relPoint, o._x, o._y end,
+        ClearAllPoints = function(o)
+            o._point, o._relPoint, o._x, o._y = nil, nil, 0, 0
+        end,
         SetWidth  = function(o, w) o._w = w end,
         SetHeight = function(o, h) o._h = h end,
         SetSize   = function(o, w, h) o._w, o._h = w, h end,

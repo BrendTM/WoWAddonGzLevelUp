@@ -583,6 +583,272 @@ slash("delay 3")
 check("delay all reaches rez", GzLevelUpDB.rezDelay, 3)
 check("delay all reaches my rez", GzLevelUpDB.selfRezDelay, 3)
 
+section("quick panel: the button grid")
+fire("PLAYER_ENTERING_WORLD")
+local panel = GzLevelUpQuickPanel
+local PAD, BTN_W, BTN_H, GAP, ROW_GAP, TOP = 8, 62, 24, 8, 4, 22
+local function panelW(cols) return PAD * 2 + cols * BTN_W + (cols - 1) * GAP end
+local function panelH(rows) return PAD + TOP + rows * BTN_H + (rows - 1) * ROW_GAP end
+
+check("one row of two by default",
+      GzLevelUpDB.quickPanelRows .. "x" .. GzLevelUpDB.quickPanelCols, "1x2")
+check("with the texts it always had",
+      table.concat(GzLevelUpDB.quickPanelButtons, ","), "gz,ty")
+check("the panel is the size it always was", panel:GetWidth(), panelW(2))
+check("in both directions", panel:GetHeight(), panelH(1))
+check("two buttons on screen", panel.buttons[2]:IsShown(), true)
+check("and no third one built", panel.buttons[3], nil)
+
+-- Two by three: the panel grows in both directions and fills the new slots.
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 2, 3
+GzLevelUpDB.quickPanelButtons = { "gz", "ty", "wb", "F", "brb", "omw" }
+fire("PLAYER_ENTERING_WORLD")
+check("six buttons now", panel.buttons[6]:IsShown(), true)
+check("wider", panel:GetWidth(), panelW(3))
+check("taller", panel:GetHeight(), panelH(2))
+
+-- Each button sends the text of its own slot, not of the one it was built as.
+GzLevelUpDB.quickPanelEnabled = true
+reset(); panel.buttons[5]:GetScript("OnClick")()
+check("a button sends its own slot's text", lastSent(), "brb")
+
+-- Shrinking hides the leftovers rather than leaving them floating.
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 1, 2
+fire("PLAYER_ENTERING_WORLD")
+check("the extra buttons go away", panel.buttons[6]:IsShown(), false)
+check("and the panel is back to its old size", panel:GetWidth(), panelW(2))
+
+-- Neither slider can push the grid somewhere the panel cannot follow.
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 0, 99
+fire("PLAYER_ENTERING_WORLD")
+check("a side of zero counts as one", panel:GetHeight(), panelH(1))
+check("and four is the ceiling", panel:GetWidth(), panelW(4))
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 1, 2
+GzLevelUpDB.quickPanelEnabled = false
+
+section("quick panel: upgrading from the two fixed buttons")
+GzLevelUpDB = { gzButtonMessage = "gratz!", tyButtonMessage = "thx" }
+GzLevelUpProfilesDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+check("both texts move onto the grid",
+      table.concat(GzLevelUpDB.quickPanelButtons, ","), "gratz!,thx")
+check("still one row of two", GzLevelUpDB.quickPanelCols, 2)
+check("and the old keys are dropped", GzLevelUpDB.gzButtonMessage, nil)
+
+section("profiles: upgrading from a version without them")
+-- Somebody who has been using the addon for a while: settings in the flat DB,
+-- no profile store anywhere. Nothing about that may change for them.
+GzLevelUpDB = { message = "Gz {name}, nice one!", includeSelf = true }
+GzLevelUpProfilesDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+check("their settings survive", GzLevelUpDB.message, "Gz {name}, nice one!")
+check("and the rest is defaulted", GzLevelUpDB.announceRez, false)
+check("they now have a profile", GzLevelUpProfilesDB.active, "Default")
+check("holding the same message", GzLevelUpProfilesDB.profiles.Default.message,
+      "Gz {name}, nice one!")
+check("bound to this character", GzLevelUpProfilesDB.chars["Brend - Blackrock"], "Default")
+
+section("profiles: creating and switching")
+slash("profile new Raid")
+check("the new profile is active", GzLevelUpProfilesDB.active, "Raid")
+check("and starts as a copy of the old one", GzLevelUpDB.message, "Gz {name}, nice one!")
+GzLevelUpDB.message, GzLevelUpDB.useRaidChat = "gz", true
+slash("profile Default")
+check("switching back restores the text", GzLevelUpDB.message, "Gz {name}, nice one!")
+check("and the raid setting", GzLevelUpDB.useRaidChat, false)
+slash("profile Raid")
+check("the other profile kept its own text", GzLevelUpDB.message, "gz")
+check("and its own raid setting", GzLevelUpDB.useRaidChat, true)
+slash("profile Nope")
+check("an unknown name changes nothing", GzLevelUpProfilesDB.active, "Raid")
+slash("profile new Raid")
+check("a name cannot be taken twice", GzLevelUpProfilesDB.active, "Raid")
+
+-- The button list is a table, so every profile needs its own: handing the
+-- same one to two profiles would let editing one quietly edit the other.
+GzLevelUpDB.quickPanelButtons[1] = "yo"
+GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 2, 4
+slash("profile Default")
+check("Default keeps its own button list", GzLevelUpDB.quickPanelButtons[1], "gz")
+check("and its own grid", GzLevelUpDB.quickPanelRows .. "x" .. GzLevelUpDB.quickPanelCols, "1x2")
+slash("profile Raid")
+check("and Raid keeps the edit", GzLevelUpDB.quickPanelButtons[1], "yo")
+check("and its bigger grid", GzLevelUpDB.quickPanelRows .. "x" .. GzLevelUpDB.quickPanelCols, "2x4")
+
+section("profiles: where a window sits is not a setting")
+GzLevelUpDB.configPos = { point = "CENTER", x = 12, y = 34 }
+slash("profile Default")
+check("the window stays where it was", GzLevelUpDB.configPos and GzLevelUpDB.configPos.x, 12)
+check("and the profile does not carry it", GzLevelUpProfilesDB.profiles.Raid.configPos, nil)
+
+section("profiles: one per character")
+-- Log out and back in as somebody else on the same account.
+fire("PLAYER_LOGOUT")
+world.player.name = "Zwerg"
+fire("ADDON_LOADED", "GzLevelUp")
+check("an unknown character keeps what is loaded", GzLevelUpProfilesDB.active, "Default")
+check("and is bound to it", GzLevelUpProfilesDB.chars["Zwerg - Blackrock"], "Default")
+slash("profile Raid")
+fire("PLAYER_LOGOUT")
+world.player.name = "Brend"
+fire("ADDON_LOADED", "GzLevelUp")
+check("the first character is back on its own", GzLevelUpProfilesDB.active, "Default")
+check("with its own message", GzLevelUpDB.message, "Gz {name}, nice one!")
+check("the other one stays where it was left", GzLevelUpProfilesDB.chars["Zwerg - Blackrock"], "Raid")
+
+section("profiles: deleting")
+slash("profile delete Default")
+check("the active one is refused", GzLevelUpProfilesDB.profiles.Default ~= nil, true)
+slash("profile delete Raid")
+check("another one goes", GzLevelUpProfilesDB.profiles.Raid, nil)
+check("and its characters are unbound", GzLevelUpProfilesDB.chars["Zwerg - Blackrock"], nil)
+check("the live settings are untouched", GzLevelUpDB.message, "Gz {name}, nice one!")
+
+section("profiles: restoring defaults stops at the active profile")
+slash("")  -- opening the window is what builds the reset popup
+slash("profile new Raid")
+GzLevelUpDB.message = "gz"
+slash("profile Default")
+GzLevelUpDB.quickPanelPos = { point = "CENTER", x = 70, y = 80 }
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("the active profile is back to stock", GzLevelUpDB.message, "Gz {name}!")
+check("the other one is left alone", GzLevelUpProfilesDB.profiles.Raid.message, "gz")
+-- Resetting your messages is no reason to throw the panels across the screen.
+check("the panel stays where it was dragged",
+      GzLevelUpDB.quickPanelPos and GzLevelUpDB.quickPanelPos.x, 70)
+check("and so does the config window",
+      GzLevelUpDB.configPos and GzLevelUpDB.configPos.x, 12)
+
+section("profiles: the settings tab")
+local menu = dropdownEntries(GzLevelUpProfileDropDown)
+check("the menu lists every profile", #menu, 2)
+check("in a stable order", (menu[1].text or "") .. "/" .. (menu[2].text or ""), "Default/Raid")
+check("with the active one ticked", menu[1].checked, true)
+check("and the other one not", menu[2].checked, false)
+menu[2].func()
+check("clicking an entry switches", GzLevelUpProfilesDB.active, "Raid")
+check("and loads its settings", GzLevelUpDB.message, "gz")
+
+-- The new-profile dialog: a name, and a checkbox deciding where the settings
+-- come from.
+local newDialog = GzLevelUpNewProfileDialog
+local function fillNewDialog(name, copyCurrent)
+    newDialog.nameBox:SetText(name)
+    newDialog.copyCheck:SetChecked(copyCurrent)
+    newDialog.Confirm()
+end
+
+fillNewDialog("  Dungeon  ", true)
+check("the dialog creates a profile", GzLevelUpProfilesDB.profiles.Dungeon ~= nil, true)
+check("with the name trimmed", GzLevelUpProfilesDB.active, "Dungeon")
+check("taking the current settings over", GzLevelUpDB.message, "gz")
+
+-- Unticked, the new profile starts from what the addon ships with instead.
+-- Two settings that are off by default get switched on first, so "back to
+-- stock" means more than the message being replaced.
+GzLevelUpDB.announceRez, GzLevelUpDB.useRaidChat = true, true
+fillNewDialog("Fresh", false)
+check("a fresh profile is active", GzLevelUpProfilesDB.active, "Fresh")
+check("and starts from the shipped defaults", GzLevelUpDB.message, "Gz {name}!")
+check("switches are back to stock too", GzLevelUpDB.announceRez, false)
+check("all of them", GzLevelUpDB.useRaidChat, false)
+check("the profile we came from kept its message",
+      GzLevelUpProfilesDB.profiles.Dungeon.message, "gz")
+check("and kept its switches", GzLevelUpProfilesDB.profiles.Dungeon.announceRez, true)
+
+-- A name that is only blanks is no name at all, and nothing is created.
+local before = GzLevelUpProfilesDB.active
+fillNewDialog("   ", true)
+check("an empty name creates nothing", GzLevelUpProfilesDB.active, before)
+
+fillNewDialog("Dungeon", true)
+check("an existing name is refused", GzLevelUpProfilesDB.active, before)
+
+-- A profile built from the defaults must get a copy of them, not the defaults
+-- themselves: otherwise editing a button would rewrite what "default" means
+-- for every profile made from here on.
+fillNewDialog("Stock", false)
+GzLevelUpDB.quickPanelButtons[3] = "edited"
+fillNewDialog("Stock2", false)
+check("the shipped defaults cannot be edited through a profile",
+      GzLevelUpDB.quickPanelButtons[3], nil)
+
+slash("profile Dungeon")
+slash("profile delete Fresh")
+slash("profile delete Stock")
+slash("profile delete Stock2")
+
+-- Deleting from the tab removes the profile you are on, so it steps aside
+-- first - the slash command refuses instead, where you name it yourself.
+StaticPopupDialogs["GZLEVELUP_DELETE_PROFILE"].OnAccept()
+check("the profile is gone", GzLevelUpProfilesDB.profiles.Dungeon, nil)
+check("and we landed on another one", GzLevelUpProfilesDB.active, "Default")
+check("whose settings are loaded", GzLevelUpDB.message, "Gz {name}!")
+
+section("profiles: one stored before the button grid existed")
+-- A profile made by an older build has the two fixed button keys and none of
+-- the grid ones. Switching to it has to bring it up to date on the way in,
+-- otherwise the panel would come up blank.
+GzLevelUpProfilesDB.profiles.Legacy = {
+    message = "Gz {name}!", gzButtonMessage = "grats", tyButtonMessage = "thx",
+}
+slash("profile Legacy")
+check("its two buttons move onto the grid",
+      table.concat(GzLevelUpDB.quickPanelButtons, ","), "grats,thx")
+check("and it gets a grid to hold them", GzLevelUpDB.quickPanelCols, 2)
+check("the old keys are gone", GzLevelUpDB.gzButtonMessage, nil)
+slash("profile Dungeon")
+slash("profile delete Legacy")
+
+section("quick panel: the grid in the config window")
+-- The two sliders are the only way to size the grid, so they have to reach all
+-- the way through to the panel.
+GzLevelUpDB.quickPanelButtons = { "a", "b", "c", "d", "e", "f" }
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 2)
+GzLevelUpColsSlider:GetScript("OnValueChanged")(GzLevelUpColsSlider, 3)
+check("the rows slider writes through", GzLevelUpDB.quickPanelRows, 2)
+check("and the columns slider too", GzLevelUpDB.quickPanelCols, 3)
+check("the panel followed", panel:GetWidth(), panelW(3))
+check("with all six buttons", panel.buttons[6]:IsShown(), true)
+check("carrying the texts", panel.buttons[6]:GetText(), "f")
+
+-- Shrinking the grid hides fields; it must not throw their texts away.
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 1)
+GzLevelUpColsSlider:GetScript("OnValueChanged")(GzLevelUpColsSlider, 2)
+check("the panel shrank back", panel:GetWidth(), panelW(2))
+check("but the hidden texts are kept", GzLevelUpDB.quickPanelButtons[6], "f")
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 2)
+check("and come back when it grows again", panel.buttons[5]:GetText(), "e")
+
+GzLevelUpRowsSlider:GetScript("OnValueChanged")(GzLevelUpRowsSlider, 1)
+GzLevelUpDB.quickPanelButtons = { "gz", "ty" }
+
+section("placement: every character puts things where it wants them")
+-- Dragging writes to this character's own store and never back to the shared
+-- one, which is what lets two characters drift apart.
+GzLevelUpCharDB = {}
+GzLevelUpDB.quickPanelPos = { point = "CENTER", relPoint = "CENTER", x = 70, y = 80 }
+panel:SetPoint("CENTER", UIParent, "CENTER", 120, 90)
+panel:GetScript("OnDragStop")(panel)
+check("dragging stores the spot for this character",
+      GzLevelUpCharDB.quickPanelPos and GzLevelUpCharDB.quickPanelPos.x, 120)
+check("and leaves the shared one alone", GzLevelUpDB.quickPanelPos.x, 70)
+
+-- A character that has never placed anything starts from the shared value,
+-- so upgrading finds the windows where they have always been.
+GzLevelUpCharDB.configPos = nil
+GzLevelUpDB.configPos = { point = "CENTER", relPoint = "CENTER", x = 12, y = 34 }
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("an unplaced window inherits the shared spot",
+      select(4, GzLevelUpConfigFrame:GetPoint()), 12)
+
+GzLevelUpCharDB.configPos = { point = "CENTER", relPoint = "CENTER", x = 99, y = 5 }
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("once placed, this character's own spot wins",
+      select(4, GzLevelUpConfigFrame:GetPoint()), 99)
+check("and restoring defaults still moves nothing",
+      GzLevelUpCharDB.configPos and GzLevelUpCharDB.configPos.x, 99)
+
 section("addon metadata (feeds the info tab)")
 local meta = GetAddOnMetadata
 check("version present", type(meta("GzLevelUp", "Version")), "string")
@@ -592,7 +858,11 @@ check("curseforge link is a url",
       (meta("GzLevelUp", "X-CurseForge") or ""):match("^https://") ~= nil, true)
 check("github link is a url",
       (meta("GzLevelUp", "X-Website") or ""):match("^https://") ~= nil, true)
-check("saved variables declared", meta("GzLevelUp", "SavedVariables"), "GzLevelUpDB")
+check("saved variables declared", meta("GzLevelUp", "SavedVariables"),
+      "GzLevelUpDB, GzLevelUpProfilesDB")
+-- Without this line the game would never hand a character its own placements.
+check("per-character variables declared",
+      meta("GzLevelUp", "SavedVariablesPerCharacter"), "GzLevelUpCharDB")
 
 section("minimap button")
 check("off by default", GzLevelUpDB.minimapEnabled, false)

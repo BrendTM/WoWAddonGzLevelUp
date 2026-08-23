@@ -40,10 +40,13 @@ local defaults = {
     rezCollect        = 3,                    -- batch resurrections for this long
     quickPanelEnabled = false,               -- show floating gz/ty panel?
     quickPanelScale   = 1.0,                 -- panel scale (0.5 - 2.0)
+    -- The panel's buttons are a grid you size yourself. 1x2 is what the panel
+    -- has always been, so nothing moves for anyone who does not touch it.
+    quickPanelRows    = 1,
+    quickPanelCols    = 2,
+    quickPanelButtons = { "gz", "ty" },       -- one text per button, row by row
     minimapEnabled    = false,               -- show the minimap button?
     minimapAngle      = 210,                 -- its position around the minimap
-    gzButtonMessage   = "gz",                -- text of the left button
-    tyButtonMessage   = "ty",                -- text of the right button
     -- Auto reply: say "ty" once after people congratulated my own level-up.
     autoReplyEnabled  = false,
     replyMessage      = L.DEFAULT_REPLY,
@@ -130,6 +133,17 @@ local function ClampScale(n)
     return n
 end
 
+-- One side of the quick panel's button grid. The ceiling is what still fits
+-- both on screen as a panel and as a row of text fields in the config window.
+local MAX_GRID = 4
+
+local function ClampGrid(n)
+    n = math.floor((tonumber(n) or 1) + 0.5)
+    if n < 1 then n = 1 end
+    if n > MAX_GRID then n = MAX_GRID end
+    return n
+end
+
 -- GUID -> last known level. Keyed by GUID instead of a unit token so that
 -- "party1" isn't later mistakenly attributed to a different player.
 local knownLevels = {}
@@ -141,24 +155,51 @@ local knownDead = {}
 
 local PREFIX = "|cff33ff99GzLevelUp|r: "
 
--- The single global delay (delayEnabled + delaySeconds) became one delay per
--- category. Carry the old value over to all three, then drop the old keys.
+-- Settings are plain values with one exception, the panel's button list, so
+-- copying one has to go a level deep. Handing the same table to two profiles
+-- would let editing one of them change the other.
+local function CopyValue(v)
+    if type(v) ~= "table" then return v end
+    local out = {}
+    for k, item in pairs(v) do out[k] = item end
+    return out
+end
+
 local function Migrate()
-    if GzLevelUpDB.delaySeconds == nil and GzLevelUpDB.delayEnabled == nil then return end
-    local old = GzLevelUpDB.delayEnabled and ClampDelay(GzLevelUpDB.delaySeconds) or 0
-    for _, kind in ipairs(CATEGORY_ORDER) do
-        local key = CATEGORY[kind].delay
-        if GzLevelUpDB[key] == nil then GzLevelUpDB[key] = old end
+    -- The single global delay (delayEnabled + delaySeconds) became one delay
+    -- per category. Carry the old value over to all three, then drop the keys.
+    if GzLevelUpDB.delaySeconds ~= nil or GzLevelUpDB.delayEnabled ~= nil then
+        local old = GzLevelUpDB.delayEnabled and ClampDelay(GzLevelUpDB.delaySeconds) or 0
+        for _, kind in ipairs(CATEGORY_ORDER) do
+            local key = CATEGORY[kind].delay
+            if GzLevelUpDB[key] == nil then GzLevelUpDB[key] = old end
+        end
+        GzLevelUpDB.delayEnabled = nil
+        GzLevelUpDB.delaySeconds = nil
     end
-    GzLevelUpDB.delayEnabled = nil
-    GzLevelUpDB.delaySeconds = nil
+
+    -- The panel's two fixed buttons became a grid. Whatever the two of them
+    -- said stays on the first two buttons, so the panel looks unchanged.
+    if GzLevelUpDB.quickPanelButtons == nil
+        and (GzLevelUpDB.gzButtonMessage ~= nil or GzLevelUpDB.tyButtonMessage ~= nil) then
+        GzLevelUpDB.quickPanelButtons = {
+            GzLevelUpDB.gzButtonMessage or "gz",
+            GzLevelUpDB.tyButtonMessage or "ty",
+        }
+    end
+    GzLevelUpDB.gzButtonMessage = nil
+    GzLevelUpDB.tyButtonMessage = nil
 end
 
 local function ApplyDefaults()
+    -- Saved variables are restored after this file has run, so the table the
+    -- top of the file created may already have been replaced by a saved one -
+    -- or by nothing at all, on a character that has never seen the addon.
+    GzLevelUpCharDB = GzLevelUpCharDB or {}
     Migrate()
     for k, v in pairs(defaults) do
         if GzLevelUpDB[k] == nil then
-            GzLevelUpDB[k] = v
+            GzLevelUpDB[k] = CopyValue(v)
         end
     end
 end
@@ -185,16 +226,35 @@ local function ShortName(name)
     return name:match("^([^-]+)") or name
 end
 
--- Remembers where the user dragged a frame to, under the given DB key.
+-- Where things sit on screen is saved per character, not per account: the same
+-- panel may belong in a different corner on a hunter than on a healer, and it
+-- has nothing to do with which settings profile is active.
+--
+-- Until 1.3 these lived in the account-wide DB, so that value is still read as
+-- the starting point for a character that has not placed anything yet. It is
+-- never written again, which is what lets the characters drift apart.
+GzLevelUpCharDB = GzLevelUpCharDB or {}
+
+local function GetPlacement(key)
+    local mine = GzLevelUpCharDB[key]
+    if mine ~= nil then return mine end
+    return GzLevelUpDB[key]
+end
+
+local function SetPlacement(key, value)
+    GzLevelUpCharDB[key] = value
+end
+
+-- Remembers where the user dragged a frame to, under the given key.
 -- Anchoring is always relative to UIParent so the value survives a reload.
 local function SavePos(frame, key)
     local point, _, relPoint, x, y = frame:GetPoint()
-    GzLevelUpDB[key] = { point = point, relPoint = relPoint, x = x, y = y }
+    SetPlacement(key, { point = point, relPoint = relPoint, x = x, y = y })
 end
 
 -- Counterpart to SavePos; centers the frame if there is nothing stored yet.
 local function RestorePos(frame, key)
-    local pos = GzLevelUpDB[key]
+    local pos = GetPlacement(key)
     frame:ClearAllPoints()
     if pos and pos.point then
         frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
@@ -685,17 +745,61 @@ local function ManualSend(text)
     end
 end
 
-local function RefreshQuickButtons()
-    if not quickPanel then return end
-    quickPanel.gzBtn:SetText(GzLevelUpDB.gzButtonMessage)
-    quickPanel.tyBtn:SetText(GzLevelUpDB.tyButtonMessage)
+-- The text on button i, counting through the grid row by row.
+local function ButtonText(i)
+    local list = GzLevelUpDB.quickPanelButtons
+    return (list and list[i]) or ""
+end
+
+local QUICK_BTN_W, QUICK_BTN_H = 62, 24
+local QUICK_PAD, QUICK_GAP     = 8, 8
+local QUICK_ROW_GAP            = 4
+local QUICK_TOP                = 22 -- the title doubles as the drag handle
+
+local function NewQuickButton(p, i)
+    local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    b:SetSize(QUICK_BTN_W, QUICK_BTN_H)
+    -- Reads the text when clicked rather than capturing it, so retyping a
+    -- button's message does not need the button rebuilt.
+    b:SetScript("OnClick", function() ManualSend(ButtonText(i)) end)
+    p.buttons[i] = b
+    return b
+end
+
+-- Sizes the panel to the configured grid and puts the buttons in it. Frames
+-- cannot be destroyed in WoW, so shrinking the grid hides the leftovers and
+-- growing it again reuses them.
+local function LayoutQuickPanel()
+    local p = quickPanel
+    if not p then return end
+
+    local rows = ClampGrid(GzLevelUpDB.quickPanelRows)
+    local cols = ClampGrid(GzLevelUpDB.quickPanelCols)
+
+    p:SetSize(QUICK_PAD * 2 + cols * QUICK_BTN_W + (cols - 1) * QUICK_GAP,
+              QUICK_PAD + QUICK_TOP + rows * QUICK_BTN_H + (rows - 1) * QUICK_ROW_GAP)
+
+    for i = 1, MAX_GRID * MAX_GRID do
+        local btn = p.buttons[i]
+        if i <= rows * cols then
+            btn = btn or NewQuickButton(p, i)
+            local row, col = math.floor((i - 1) / cols), (i - 1) % cols
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT",
+                         QUICK_PAD + col * (QUICK_BTN_W + QUICK_GAP),
+                         -(QUICK_TOP + row * (QUICK_BTN_H + QUICK_ROW_GAP)))
+            btn:SetText(ButtonText(i))
+            btn:Show()
+        elseif btn then
+            btn:Hide()
+        end
+    end
 end
 
 local function CreateQuickPanel()
     if quickPanel then return quickPanel end
 
     local p = CreateFrame("Frame", "GzLevelUpQuickPanel", UIParent, "BackdropTemplate")
-    p:SetSize(148, 54)
     p:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -719,29 +823,18 @@ local function CreateQuickPanel()
     handle:SetPoint("TOP", 0, -8)
     handle:SetText("GzLevelUp")
 
-    local gzBtn = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    gzBtn:SetSize(62, 24)
-    gzBtn:SetPoint("BOTTOMLEFT", 8, 8)
-    gzBtn:SetScript("OnClick", function() ManualSend(GzLevelUpDB.gzButtonMessage) end)
-
-    local tyBtn = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-    tyBtn:SetSize(62, 24)
-    tyBtn:SetPoint("BOTTOMRIGHT", -8, 8)
-    tyBtn:SetScript("OnClick", function() ManualSend(GzLevelUpDB.tyButtonMessage) end)
-
-    p.gzBtn = gzBtn
-    p.tyBtn = tyBtn
+    p.buttons = {}
 
     quickPanel = p
     p:SetScale(ClampScale(GzLevelUpDB.quickPanelScale))
     RestorePos(p, "quickPanelPos")
-    RefreshQuickButtons()
+    LayoutQuickPanel()
     return p
 end
 
 local function UpdateQuickPanel()
     local p = CreateQuickPanel()
-    RefreshQuickButtons()
+    LayoutQuickPanel()
     if GzLevelUpDB.quickPanelEnabled then p:Show() else p:Hide() end
 end
 
@@ -756,7 +849,7 @@ local MINIMAP_RADIUS = 80
 
 local function PlaceMinimapButton()
     if not minimapButton then return end
-    local angle = tonumber(GzLevelUpDB.minimapAngle) or 210
+    local angle = tonumber(GetPlacement("minimapAngle")) or 210
     local rad = math.rad(angle)
     minimapButton:SetPoint("CENTER", Minimap, "CENTER",
         MINIMAP_RADIUS * math.cos(rad), MINIMAP_RADIUS * math.sin(rad))
@@ -768,7 +861,7 @@ local function DragMinimapButton(self)
     local scale = Minimap:GetEffectiveScale()
     local px, py = GetCursorPosition()
     px, py = px / scale, py / scale
-    GzLevelUpDB.minimapAngle = math.deg(math.atan2(py - cy, px - cx))
+    SetPlacement("minimapAngle", math.deg(math.atan2(py - cy, px - cx)))
     self:ClearAllPoints()
     PlaceMinimapButton()
 end
@@ -836,6 +929,150 @@ local function UpdateMinimapButton()
     if GzLevelUpDB.minimapEnabled then b:Show() else b:Hide() end
 end
 
+-- ---------------------------------------------------------------------------
+-- Settings profiles
+-- ---------------------------------------------------------------------------
+-- GzLevelUpDB stays exactly what it has always been: one flat table holding the
+-- settings that are in effect right now. The profile store lives beside it and
+-- keeps a named copy of every profile plus which character uses which, so the
+-- rest of the addon never has to know that profiles exist at all.
+--
+-- That also means an older version of the addon still finds everything where it
+-- expects it, and it settles who wins after a crash: GzLevelUpDB is written on
+-- every change, the copy in the store only at the points below, so the live
+-- table is always the newer of the two for the profile named in `active`.
+GzLevelUpProfilesDB = GzLevelUpProfilesDB or {}
+
+-- Where a window was dragged to is not a setting. Carrying those along would
+-- make the panels jump across the screen on every switch, so they stay put.
+local NOT_IN_PROFILE = {
+    configPos = true, quickPanelPos = true, minimapAngle = true,
+}
+
+local ReloadConfigUI -- set by BuildConfig, once the window exists
+
+local function CopySettings(from, into)
+    for k, v in pairs(from) do
+        if not NOT_IN_PROFILE[k] then into[k] = CopyValue(v) end
+    end
+    return into
+end
+
+-- Replaces the live settings wholesale: keys the incoming profile does not have
+-- must disappear rather than linger from the profile before it.
+local function LoadSettings(profile)
+    for k in pairs(GzLevelUpDB) do
+        if not NOT_IN_PROFILE[k] then GzLevelUpDB[k] = nil end
+    end
+    CopySettings(profile, GzLevelUpDB)
+    ApplyDefaults()
+end
+
+-- Profiles are bound per character, and two realms can have a "Brend".
+local function CharKey()
+    local name = UnitName("player") or "?"
+    local realm = GetRealmName and GetRealmName() or ""
+    if realm == "" then return name end
+    return name .. " - " .. realm
+end
+
+local function ActiveProfile()
+    return GzLevelUpProfilesDB.active
+end
+
+local function ProfileNames()
+    local names = {}
+    for name in pairs(GzLevelUpProfilesDB.profiles or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    return names
+end
+
+-- Writes the live settings back into the profile they belong to.
+local function StoreActive()
+    local s = GzLevelUpProfilesDB
+    if s.active then s.profiles[s.active] = CopySettings(GzLevelUpDB, {}) end
+end
+
+local function ApplyProfileEverywhere()
+    UpdateQuickPanel()
+    if quickPanel then quickPanel:SetScale(ClampScale(GzLevelUpDB.quickPanelScale)) end
+    UpdateMinimapButton()
+    PlaceMinimapButton()
+    if ReloadConfigUI then ReloadConfigUI() end
+end
+
+-- Called on every load. For someone who has been using the addon all along
+-- this is invisible: their settings simply become their first profile.
+local function InitProfiles()
+    local s = GzLevelUpProfilesDB
+    s.profiles = s.profiles or {}
+    s.chars    = s.chars or {}
+
+    if s.active == nil or s.profiles[s.active] == nil then
+        s.active = s.active or L.PROFILE_DEFAULT
+        s.profiles[s.active] = CopySettings(GzLevelUpDB, {})
+    end
+
+    -- Whatever is live belongs to the profile we left off with, whether we got
+    -- here through a clean logout or through a crash.
+    StoreActive()
+
+    local me = CharKey()
+    local want = s.chars[me]
+    if want == nil or s.profiles[want] == nil then
+        -- A character we have not seen before keeps using what is loaded.
+        s.chars[me], want = s.active, s.active
+    end
+
+    if want ~= s.active then
+        LoadSettings(s.profiles[want])
+        s.active = want
+    end
+end
+
+-- Switching is a user action, so it also binds this character to the profile.
+local function SwitchProfile(name)
+    local s = GzLevelUpProfilesDB
+    if not name or not s.profiles[name] then return false end
+    s.chars[CharKey()] = name
+    if name ~= s.active then
+        StoreActive()
+        LoadSettings(s.profiles[name])
+        s.active = name
+        ApplyProfileEverywhere()
+    end
+    return true
+end
+
+-- A new profile either continues from what is configured right now - "like this
+-- one, but ..." is the common case - or starts from the settings the addon
+-- ships with. Loading an empty profile is what produces those.
+local function CreateProfile(name, fromCurrent)
+    local s = GzLevelUpProfilesDB
+    if not name or name == "" or s.profiles[name] then return false end
+
+    StoreActive()
+    s.chars[CharKey()] = name
+    s.active = name
+    if not fromCurrent then LoadSettings({}) end
+    s.profiles[name] = CopySettings(GzLevelUpDB, {})
+    return true
+end
+
+-- The active profile cannot be deleted - there would be nothing left to fall
+-- back to for the settings that are currently in effect.
+local function DeleteProfile(name)
+    local s = GzLevelUpProfilesDB
+    if not name or not s.profiles[name] or name == s.active then return false end
+    s.profiles[name] = nil
+    for char, used in pairs(s.chars) do
+        if used == name then s.chars[char] = nil end
+    end
+    return true
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -853,12 +1090,17 @@ f:RegisterEvent("PLAYER_DEAD")
 f:RegisterEvent("PLAYER_ALIVE")
 f:RegisterEvent("PLAYER_UNGHOST")
 f:RegisterEvent("RESURRECT_REQUEST")
+-- The last chance to copy the live settings into the active profile.
+f:RegisterEvent("PLAYER_LOGOUT")
 for event in pairs(REPLY_EVENTS) do f:RegisterEvent(event) end
 f:SetScript("OnEvent", function(self, event, arg1, arg2)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON then
             ApplyDefaults()
+            InitProfiles()
         end
+    elseif event == "PLAYER_LOGOUT" then
+        StoreActive()
     elseif REPLY_EVENTS[event] then
         OnGroupChat(event, arg1, arg2) -- arg1 = text, arg2 = sender
     elseif event == "UNIT_LEVEL" then
@@ -1381,37 +1623,90 @@ local function BuildConfig()
         UpdateQuickPanel()
     end)
 
-    local gzLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    gzLabel:SetPoint("TOPLEFT", 36, -42)
-    gzLabel:SetText(L.QUICK_GZ_LABEL)
+    local buttonsLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    buttonsLabel:SetPoint("TOPLEFT", 36, -34)
+    buttonsLabel:SetText(L.QUICK_BUTTONS_LABEL)
 
-    local gzEdit = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
-    gzEdit:SetSize(80, 22)
-    gzEdit:SetPoint("TOPLEFT", 42, -62)
-    gzEdit:SetAutoFocus(false)
-    gzEdit:SetMaxLetters(40)
+    local buttonsHelp = CreateHelpIcon(panelPage, L.QUICK_BUTTONS_HELP_TITLE, L.QUICK_BUTTONS_HELP)
+    buttonsHelp:SetPoint("LEFT", buttonsLabel, "RIGHT", 6, 0)
 
-    local tyLabel = panelPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    tyLabel:SetPoint("TOPLEFT", panelPage, "TOP", 12, -42)
-    tyLabel:SetText(L.QUICK_TY_LABEL)
+    -- Writes a button's text everywhere it is visible at once: into the DB, and
+    -- onto the button in the panel if that one is on screen.
+    local function LiveButtonText(index, text)
+        local list = GzLevelUpDB.quickPanelButtons
+        if not list then return end
+        list[index] = text
+        if quickPanel and quickPanel.buttons[index] then
+            quickPanel.buttons[index]:SetText(text)
+        end
+    end
 
-    local tyEdit = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
-    tyEdit:SetSize(80, 22)
-    tyEdit:SetPoint("TOPLEFT", panelPage, "TOP", 18, -62)
-    tyEdit:SetAutoFocus(false)
-    tyEdit:SetMaxLetters(40)
+    -- One field per button, laid out exactly like the panel is, so the grid you
+    -- see here is the grid you get. Only rows x columns of them are shown.
+    local BOX_W, BOX_GAP, BOX_ROW = 80, 12, 28
+    local quickEdits = {}
+    for i = 1, MAX_GRID * MAX_GRID do
+        local e = CreateFrame("EditBox", nil, panelPage, "InputBoxTemplate")
+        e:SetSize(BOX_W, 22)
+        e:SetAutoFocus(false)
+        e:SetMaxLetters(40)
+        e:SetScript("OnTextChanged", function(self) LiveButtonText(i, self:GetText()) end)
+        quickEdits[i] = e
+    end
 
-    -- Live-update the button labels in the panel.
-    gzEdit:SetScript("OnTextChanged", function(self)
-        if quickPanel then quickPanel.gzBtn:SetText(self:GetText()) end
-    end)
-    tyEdit:SetScript("OnTextChanged", function(self)
-        if quickPanel then quickPanel.tyBtn:SetText(self:GetText()) end
-    end)
+    local function LayoutQuickEdits()
+        local rows = ClampGrid(GzLevelUpDB.quickPanelRows)
+        local cols = ClampGrid(GzLevelUpDB.quickPanelCols)
+        for i, e in ipairs(quickEdits) do
+            if i <= rows * cols then
+                local row, col = math.floor((i - 1) / cols), (i - 1) % cols
+                e:ClearAllPoints()
+                e:SetPoint("TOPLEFT", 42 + col * (BOX_W + BOX_GAP), -54 - row * BOX_ROW)
+                e:SetText(ButtonText(i))
+                e:SetCursorPosition(0)
+                e:Show()
+            else
+                e:Hide()
+            end
+        end
+    end
+
+    -- The two sliders that size the grid. Shrinking it only hides the fields,
+    -- it does not forget what they said - grow it again and the texts are back.
+    local function CreateGridSlider(name, y, labelText, key)
+        local s = CreateFrame("Slider", name, panelPage, "OptionsSliderTemplate")
+        s:SetPoint("TOPLEFT", 40, y)
+        s:SetPoint("TOPRIGHT", -40, y)
+        s:SetMinMaxValues(1, MAX_GRID)
+        s:SetValueStep(1)
+        s:SetObeyStepOnDrag(true)
+
+        local low  = _G[name .. "Low"]  or s.Low
+        local high = _G[name .. "High"] or s.High
+        s.valueText = _G[name .. "Text"] or s.Text
+        if low  then low:SetText("1") end
+        if high then high:SetText(tostring(MAX_GRID)) end
+
+        s:SetScript("OnValueChanged", function(self, value)
+            value = ClampGrid(value)
+            GzLevelUpDB[key] = value
+            if self.valueText then
+                self.valueText:SetText(labelText .. ": " .. value)
+            end
+            LayoutQuickEdits()
+            LayoutQuickPanel()
+        end)
+        return s
+    end
+
+    local rowsSlider = CreateGridSlider("GzLevelUpRowsSlider", -172,
+                                        L.QUICK_ROWS_LABEL, "quickPanelRows")
+    local colsSlider = CreateGridSlider("GzLevelUpColsSlider", -212,
+                                        L.QUICK_COLS_LABEL, "quickPanelCols")
 
     local scaleSlider = CreateFrame("Slider", "GzLevelUpScaleSlider", panelPage, "OptionsSliderTemplate")
-    scaleSlider:SetPoint("TOPLEFT", 40, -130)
-    scaleSlider:SetPoint("TOPRIGHT", -40, -130)
+    scaleSlider:SetPoint("TOPLEFT", 40, -252)
+    scaleSlider:SetPoint("TOPRIGHT", -40, -252)
     scaleSlider:SetMinMaxValues(MIN_SCALE, MAX_SCALE)
     scaleSlider:SetValueStep(0.05)
     scaleSlider:SetObeyStepOnDrag(true)
@@ -1435,9 +1730,8 @@ local function BuildConfig()
     local function SetQuickEnabled(on)
         local r, g, b = 1, 0.82, 0
         if not on then r, g, b = 0.5, 0.5, 0.5 end
-        gzLabel:SetTextColor(r, g, b)
-        tyLabel:SetTextColor(r, g, b)
-        for _, e in ipairs({ gzEdit, tyEdit }) do
+        buttonsLabel:SetTextColor(r, g, b)
+        for _, e in ipairs(quickEdits) do
             e:EnableMouse(on)
             if on then
                 e:SetTextColor(1, 1, 1)
@@ -1446,7 +1740,10 @@ local function BuildConfig()
                 e:SetTextColor(0.5, 0.5, 0.5)
             end
         end
-        if on then scaleSlider:Enable() else scaleSlider:Disable() end
+        for _, s in ipairs({ rowsSlider, colsSlider, scaleSlider }) do
+            if on then s:Enable() else s:Disable() end
+            if s.valueText then s.valueText:SetTextColor(r, g, b) end
+        end
         if scaleText then scaleText:SetTextColor(r, g, b) end
     end
 
@@ -1475,11 +1772,42 @@ local function BuildConfig()
         UpdateMinimapButton()
     end)
 
+    -- --- Settings profiles ------------------------------------------------
+    local profileSep = settingsPage:CreateTexture(nil, "ARTWORK")
+    profileSep:SetTexture(WHITE)
+    profileSep:SetHeight(1)
+    profileSep:SetPoint("TOPLEFT", 30, -100)
+    profileSep:SetPoint("TOPRIGHT", -30, -100)
+    profileSep:SetVertexColor(1, 1, 1, 0.15)
+
+    local profileLabel = settingsPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    profileLabel:SetPoint("TOPLEFT", 30, -118)
+    profileLabel:SetText(L.PROFILE_LABEL)
+
+    local profileHelp = CreateHelpIcon(settingsPage, L.PROFILE_HELP_TITLE, L.PROFILE_HELP)
+    profileHelp:SetPoint("LEFT", profileLabel, "RIGHT", 6, 0)
+
+    -- The dropdown needs a global name: the UIDropDownMenu functions look their
+    -- frame up by it rather than taking the frame itself.
+    local profileDrop = CreateFrame("Frame", "GzLevelUpProfileDropDown", settingsPage,
+                                    "UIDropDownMenuTemplate")
+    profileDrop:SetPoint("TOPLEFT", 12, -140)
+
+    local newProfileBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
+    newProfileBtn:SetSize(76, 22)
+    newProfileBtn:SetPoint("TOPLEFT", 200, -144)
+    newProfileBtn:SetText(L.BTN_PROFILE_NEW)
+
+    local delProfileBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
+    delProfileBtn:SetSize(76, 22)
+    delProfileBtn:SetPoint("LEFT", newProfileBtn, "RIGHT", 6, 0)
+    delProfileBtn:SetText(L.BTN_PROFILE_DELETE)
+
     -- The reset button lives here too; it is wired up further down, once the
     -- confirmation popup and LoadValues() exist.
     local resetBtn = CreateFrame("Button", nil, settingsPage, "UIPanelButtonTemplate")
     resetBtn:SetSize(160, 24)
-    resetBtn:SetPoint("TOPLEFT", 30, -104)
+    resetBtn:SetPoint("TOPLEFT", 30, -196)
     resetBtn:SetText(L.BTN_RESET)
 
     -- === Tab 6: info ======================================================
@@ -1592,9 +1920,10 @@ local function BuildConfig()
         GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
         GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
         GzLevelUpDB.replyWindow     = ClampDelay(windowRow.edit:GetText())
-        GzLevelUpDB.gzButtonMessage = gzEdit:GetText()
-        GzLevelUpDB.tyButtonMessage = tyEdit:GetText()
-        RefreshQuickButtons()
+        for i, e in ipairs(quickEdits) do
+            if e:IsShown() then LiveButtonText(i, e:GetText()) end
+        end
+        LayoutQuickPanel()
     end
 
     local function WireBlock(block, cat)
@@ -1618,7 +1947,9 @@ local function BuildConfig()
 
     replyEdit:SetScript("OnTextChanged", UpdatePreview)
 
-    for _, e in ipairs({ gzEdit, tyEdit, replyEdit, triggerEdit }) do
+    local focusEdits = { replyEdit, triggerEdit }
+    for _, e in ipairs(quickEdits) do focusEdits[#focusEdits + 1] = e end
+    for _, e in ipairs(focusEdits) do
         e:SetScript("OnEditFocusLost", Commit)
         e:SetScript("OnEnterPressed", e.ClearFocus)
         e:SetScript("OnEscapePressed", e.ClearFocus)
@@ -1688,14 +2019,153 @@ local function BuildConfig()
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
 
         quickCB:SetChecked(GzLevelUpDB.quickPanelEnabled)
-        gzEdit:SetText(GzLevelUpDB.gzButtonMessage)
-        gzEdit:SetCursorPosition(0)
-        tyEdit:SetText(GzLevelUpDB.tyButtonMessage)
-        tyEdit:SetCursorPosition(0)
+        rowsSlider:SetValue(ClampGrid(GzLevelUpDB.quickPanelRows))
+        colsSlider:SetValue(ClampGrid(GzLevelUpDB.quickPanelCols))
+        LayoutQuickEdits() -- fills the fields from the button list as it goes
         SetQuickEnabled(GzLevelUpDB.quickPanelEnabled)
         scaleSlider:SetValue(ClampScale(GzLevelUpDB.quickPanelScale))
         UpdatePreview()
     end
+
+    -- === Settings profiles =================================================
+    -- The menu is rebuilt from the store every time it opens, so creating or
+    -- deleting a profile needs no bookkeeping here.
+    local function RefreshProfileUI()
+        UIDropDownMenu_SetText(profileDrop, ActiveProfile() or "")
+        -- With a single profile there is nothing to delete: the one in use is
+        -- never a candidate.
+        delProfileBtn:SetEnabled(#ProfileNames() > 1)
+    end
+
+    UIDropDownMenu_SetWidth(profileDrop, 150)
+    UIDropDownMenu_Initialize(profileDrop, function(_, level)
+        for _, name in ipairs(ProfileNames()) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text    = name
+            info.checked = (name == ActiveProfile())
+            info.func    = function()
+                Commit() -- a field that still had focus belongs to the old profile
+                SwitchProfile(name)
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+
+    -- Everything the window has to re-read after the settings were swapped
+    -- underneath it. ApplyProfileEverywhere calls this if the window exists.
+    ReloadConfigUI = function()
+        LoadValues()
+        RefreshProfileUI()
+    end
+
+    -- A hand-built dialog rather than a StaticPopup: those cannot carry a
+    -- checkbox, and it also takes us out of the guessing game about how a given
+    -- client hands over a popup's edit box.
+    local newDialog = CreateFrame("Frame", "GzLevelUpNewProfileDialog", UIParent,
+                                  "BackdropTemplate")
+    newDialog:SetSize(340, 150)
+    newDialog:SetPoint("CENTER")
+    newDialog:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    newDialog:SetFrameStrata("FULLSCREEN_DIALOG") -- above the config window
+    newDialog:EnableMouse(true)
+    newDialog:Hide()
+    tinsert(UISpecialFrames, "GzLevelUpNewProfileDialog") -- closes with ESC
+
+    local newPrompt = newDialog:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    newPrompt:SetPoint("TOP", 0, -20)
+    newPrompt:SetText(L.PROFILE_NEW_PROMPT)
+
+    local newName = CreateFrame("EditBox", nil, newDialog, "InputBoxTemplate")
+    newName:SetSize(270, 22)
+    newName:SetPoint("TOP", 0, -44)
+    newName:SetAutoFocus(false)
+    newName:SetMaxLetters(32)
+
+    local newCopy = CreateCheck(newDialog, L.PROFILE_COPY_CURRENT)
+    newCopy:SetPoint("TOPLEFT", 28, -72)
+
+    local newOK = CreateFrame("Button", nil, newDialog, "UIPanelButtonTemplate")
+    newOK:SetSize(110, 22)
+    newOK:SetPoint("BOTTOMRIGHT", newDialog, "BOTTOM", -6, 18)
+    newOK:SetText(L.BTN_CREATE)
+
+    local newCancel = CreateFrame("Button", nil, newDialog, "UIPanelButtonTemplate")
+    newCancel:SetSize(110, 22)
+    newCancel:SetPoint("BOTTOMLEFT", newDialog, "BOTTOM", 6, 18)
+    newCancel:SetText(L.BTN_CANCEL)
+
+    local function ConfirmNewProfile()
+        local name = (newName:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        local fromCurrent = newCopy:GetChecked() and true or false
+        newDialog:Hide()
+
+        if name == "" then
+            print(PREFIX .. L.PROFILE_NEEDS_NAME)
+            return
+        end
+
+        Commit() -- a field that still had focus belongs to the profile we are on
+        if CreateProfile(name, fromCurrent) then
+            ApplyProfileEverywhere()
+            print(PREFIX .. L.PROFILE_CREATED:format(name))
+        else
+            print(PREFIX .. L.PROFILE_EXISTS:format(name))
+        end
+    end
+
+    newOK:SetScript("OnClick", ConfirmNewProfile)
+    newCancel:SetScript("OnClick", function() newDialog:Hide() end)
+    newName:SetScript("OnEnterPressed", ConfirmNewProfile)
+    newName:SetScript("OnEscapePressed", function() newDialog:Hide() end)
+
+    -- Reachable for the test suite, which has no way to click a button.
+    newDialog.nameBox, newDialog.copyCheck = newName, newCopy
+    newDialog.Confirm = ConfirmNewProfile
+
+    StaticPopupDialogs["GZLEVELUP_DELETE_PROFILE"] = {
+        text = L.PROFILE_DELETE_CONFIRM,
+        button1 = YES,
+        button2 = NO,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+        OnAccept = function()
+            -- The profile in use is never the one that gets removed, so step
+            -- onto another one first and take this one with us.
+            local doomed = ActiveProfile()
+            for _, name in ipairs(ProfileNames()) do
+                if name ~= doomed then
+                    Commit()
+                    SwitchProfile(name)
+                    break
+                end
+            end
+            if DeleteProfile(doomed) then
+                RefreshProfileUI()
+                print(PREFIX .. L.PROFILE_DELETED:format(doomed))
+            end
+        end,
+    }
+
+    newProfileBtn:SetScript("OnClick", function()
+        newName:SetText("")
+        -- Carrying the current settings over is what you want most of the time.
+        newCopy:SetChecked(true)
+        newDialog:Show()
+        newName:SetFocus()
+    end)
+
+    delProfileBtn:SetScript("OnClick", function()
+        if #ProfileNames() < 2 then return end
+        StaticPopup_Show("GZLEVELUP_DELETE_PROFILE", ActiveProfile())
+    end)
 
     -- === Restore defaults ==================================================
     StaticPopupDialogs["GZLEVELUP_RESET"] = {
@@ -1707,8 +2177,15 @@ local function BuildConfig()
         hideOnEscape = true,
         preferredIndex = 3,
         OnAccept = function()
-            wipe(GzLevelUpDB) -- also drops both stored window positions
-            ApplyDefaults()
+            -- Only the active profile: the others are none of this button's
+            -- business, and deleting one is a separate action. Loading an empty
+            -- profile is exactly a reset - it clears every setting and lets
+            -- ApplyDefaults fill them back in, while leaving the things that
+            -- are not settings alone. Where you dragged the windows is one of
+            -- those: resetting your messages is no reason to throw the panel
+            -- back into the middle of the screen.
+            LoadSettings({})
+            StoreActive()
             UpdateQuickPanel()
             if quickPanel then
                 quickPanel:SetScale(ClampScale(GzLevelUpDB.quickPanelScale))
@@ -1724,7 +2201,7 @@ local function BuildConfig()
 
     resetBtn:SetScript("OnClick", function() StaticPopup_Show("GZLEVELUP_RESET") end)
 
-    frame:SetScript("OnShow", LoadValues)
+    frame:SetScript("OnShow", function() ReloadConfigUI() end)
     frame:SetScript("OnHide", Commit) -- catches a field that still had focus
 
     SelectTab(1)
@@ -1852,6 +2329,43 @@ SlashCmdList.GZLEVELUP = function(msg)
             end
             print(PREFIX .. L.DELAY_SET:format(tostring(n)))
         end
+    elseif cmd == "profile" then
+        -- "new" and "delete" are the only reserved words here; anything else is
+        -- taken as a profile name, spaces and all.
+        local verb, name = rest:match("^(%S*)%s*(.*)$")
+        if verb:lower() == "new" or verb:lower() == "delete" then
+            verb = verb:lower()
+        else
+            verb, name = "use", rest
+        end
+
+        if verb == "new" then
+            if name == "" then
+                print(PREFIX .. L.PROFILE_NEEDS_NAME)
+            elseif CreateProfile(name, true) then
+                print(PREFIX .. L.PROFILE_CREATED:format(name))
+            else
+                print(PREFIX .. L.PROFILE_EXISTS:format(name))
+            end
+        elseif verb == "delete" then
+            if DeleteProfile(name) then
+                print(PREFIX .. L.PROFILE_DELETED:format(name))
+            elseif name == ActiveProfile() then
+                print(PREFIX .. L.PROFILE_KEEP_ACTIVE)
+            else
+                print(PREFIX .. L.PROFILE_UNKNOWN:format(name))
+            end
+        elseif name == "" then
+            print(PREFIX .. L.PROFILE_LIST)
+            for _, entry in ipairs(ProfileNames()) do
+                local mark = (entry == ActiveProfile()) and L.PROFILE_ACTIVE_MARK or "   "
+                print(mark .. entry)
+            end
+        elseif SwitchProfile(name) then
+            print(PREFIX .. L.PROFILE_SWITCHED:format(name))
+        else
+            print(PREFIX .. L.PROFILE_UNKNOWN:format(name))
+        end
     elseif cmd == "minimap" then
         GzLevelUpDB.minimapEnabled = not GzLevelUpDB.minimapEnabled
         UpdateMinimapButton()
@@ -1922,6 +2436,7 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_GROUP:format(tostring(GzLevelUpDB.announceGroup)))
         print(L.HELP_SELF:format(tostring(GzLevelUpDB.includeSelf)))
         print(L.HELP_PETS:format(tostring(GzLevelUpDB.includePets)))
+        print(L.HELP_PROFILE:format(tostring(ActiveProfile())))
         print(L.HELP_TEST)
     end
 end

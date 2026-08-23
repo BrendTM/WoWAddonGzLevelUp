@@ -29,9 +29,10 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
 - **Customizable messages** with placeholders `{name}` and `{level}`.
 - **Per-category delay** — each of the three announcement types has its own
   0–60 s pause before sending (`0` = immediately).
-- **Movable quick-button panel** (opt-in) — a floating panel with two buttons
-  (**gz** / **ty**) that post to your group with one click. Configurable button
-  texts, remembered position, and a size slider (50–200 %).
+- **Movable quick-button panel** (opt-in) — a floating panel whose buttons post
+  to your group with one click. Two sliders set the grid (rows × columns, up to
+  4 × 4) and every button gets its own text; **gz** / **ty** out of the box.
+  Remembered position and a size slider (50–200 %).
 - **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
   "gz" and then thank them all in a single "ty", naming everyone.
 - **Death reply** (opt-in) — say something when a group member dies, when you
@@ -42,6 +43,9 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
   on their feet, collected into one message the same way. Your own line is only
   sent when somebody actually resurrected you, and it names them — so `ty
   {name}` thanks the right person.
+- **Settings profiles** — keep more than one set of settings and switch from a
+  dropdown. Each character remembers its own and switches on login, so a healer
+  can run different messages from a hunter.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
 - **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
@@ -71,25 +75,29 @@ The config window (<code>/gz</code>) is split across six tabs:
   </tr>
   <tr>
     <td align="center" valign="top" width="50%">
-      <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab"><br>
-      <sub><b>Death reply</b> — two sub-pages, <i>Deaths</i> and <i>Resurrections</i>, each with its own lines and collect window</sub>
+      <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab, Deaths sub-page"><br>
+      <sub><b>Death reply → Deaths</b> — a line per death, plus the collect window and the wipe threshold</sub>
     </td>
     <td align="center" valign="top" width="50%">
-      <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
-      <sub><b>Quick panel</b> — button texts and panel size</sub>
+      <img src="media/example_death_reply_resurrections_panel.jpg" width="380" alt="Death reply tab, Resurrections sub-page"><br>
+      <sub><b>Death reply → Resurrections</b> — the same for coming back, with its own collect window and no threshold</sub>
     </td>
   </tr>
   <tr>
-    <td align="center" valign="top" colspan="2">
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
+      <sub><b>Quick panel</b> — the button grid, its texts, and the panel size</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
-      <sub><b>Settings</b> — master switch, raid chat and minimap button</sub>
+      <sub><b>Settings</b> — master switch, raid chat, minimap button and the settings profiles</sub>
     </td>
   </tr>
 </table>
 
 <p align="center">
   <img src="media/example_quick_panel.jpg" width="200" alt="GzLevelUp quick-buttons panel"><br>
-  <sub>The movable quick-buttons panel (gz / ty)</sub>
+  <sub>The movable quick-buttons panel, here in its default 1 × 2 grid</sub>
 </p>
 
 ---
@@ -146,6 +154,10 @@ box with sensible defaults.
 | `/gz selfrezmsg <text>` | Set the message for your own resurrection |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
 | `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
+| `/gz profile` | List the settings profiles, marking the active one |
+| `/gz profile <name>` | Switch to that profile and bind this character to it |
+| `/gz profile new <name>` | Create a profile from the current settings |
+| `/gz profile delete <name>` | Delete a profile (not the one you are on) |
 | `/gz panel` | Toggle the floating quick-buttons panel |
 | `/gz minimap` | Toggle the minimap button (off by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
@@ -229,6 +241,30 @@ and without any threshold — coming back is never bad news. Two differences:
   offer was declined nor that one was accepted.
 
 ---
+
+## Settings profiles
+
+A profile is one complete set of settings. The Settings tab has a dropdown with
+all of them plus *New* and *Delete*; `/gz profile` does the same from chat.
+
+- **Each character picks its own.** Switching a profile binds the character you
+  are on to it, and from then on logging in on that character switches to it.
+  A character the addon has not seen before keeps whatever is already loaded.
+- **New profiles start where you tell them to.** The dialog has a checkbox for
+  taking the current settings over — ticked by default, because "like this,
+  but …" is what you usually want. Untick it and the profile starts from the
+  settings the addon ships with. `/gz profile new <name>` always copies.
+- **Window positions are not part of a profile, they belong to the character.**
+  Where you dragged the config window and the quick panel, and where the
+  minimap button sits, is saved per character, so your hunter can keep the
+  panel bottom right while your healer has it next to the raid frames.
+  Switching profiles never moves anything.
+- **Restore defaults** only touches the profile you are on.
+
+Upgrading from a version without profiles needs no action: your settings become
+a profile called *Default* on the first login, and everything else follows from
+there. They also stay in the same flat saved variable they have always been in,
+so downgrading the addon again finds them intact.
 
 ## Localization
 

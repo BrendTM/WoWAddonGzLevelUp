@@ -23,12 +23,32 @@ it is written for players rather than for the diff.
   whoever offered.
 - New commands: `/gz rez`, `/gz selfrez`, `/gz rezmsg`, `/gz selfrezmsg`, and
   `rez` / `selfrez` as categories for `/gz delay`.
+- **Settings profiles**, on the Settings tab. Keep more than one set of
+  settings and switch between them from a dropdown. Every character remembers
+  which profile it uses and switches to it on login, so your healer can run
+  different messages from your hunter. When you create one, a checkbox decides
+  whether it takes your current settings over or starts from the settings the
+  addon ships with. Where you dragged the windows is deliberately not part of a
+  profile — the panels stay where they are when you switch.
+- New command: `/gz profile`, with `new` and `delete`.
+- **Every character places the windows itself.** Where the quick panel, the
+  config window and the minimap button sit is now saved per character instead
+  of once for the whole account, so the panel can be bottom right on your
+  hunter and next to the raid frames on your healer. Characters that have not
+  moved anything yet start from wherever you had it before.
+- **The quick panel holds as many buttons as you want.** Two sliders on the
+  Quick panel tab set rows and columns, up to 4 × 4, and every button gets its
+  own text — so `gz` and `ty` can be joined by `wb`, `brb`, `inc` or whatever
+  your group actually types. The panel resizes itself to the grid. Out of the
+  box it is one row of two, exactly as before.
 
 ### Changed
 
 - The **Death reply** tab now holds five lines instead of three and is split
   into two sub-pages, **Deaths** and **Resurrections**. The window keeps
   exactly the size it had.
+- **Restore defaults** resets the profile you are on, not every profile you
+  have. Deleting a profile is its own button.
 
 ### Fixed
 
@@ -38,6 +58,13 @@ it is written for players rather than for the diff.
   for the truth and announced a death the moment the real data showed up —
   usually still under the name *Unknown*. A member is now only tracked once
   their name is actually there.
+
+### Upgrading from 1.2
+
+Nothing to do. Your settings become a profile called *Default* on the first
+login, every character starts out using it, and the two quick panel buttons
+keep their texts as the first two of the grid. The windows stay where you left
+them until a character moves one.
 
 ## 1.2
 
