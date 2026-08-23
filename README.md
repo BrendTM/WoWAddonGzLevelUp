@@ -75,18 +75,22 @@ The config window (<code>/gz</code>) is split across six tabs:
   </tr>
   <tr>
     <td align="center" valign="top" width="50%">
-      <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab"><br>
-      <sub><b>Death reply</b> — two sub-pages, <i>Deaths</i> and <i>Resurrections</i>, each with its own lines and collect window</sub>
+      <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab, Deaths sub-page"><br>
+      <sub><b>Death reply → Deaths</b> — a line per death, plus the collect window and the wipe threshold</sub>
     </td>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_death_reply_resurrections_panel.jpg" width="380" alt="Death reply tab, Resurrections sub-page"><br>
+      <sub><b>Death reply → Resurrections</b> — the same for coming back, with its own collect window and no threshold</sub>
+    </td>
+  </tr>
+  <tr>
     <td align="center" valign="top" width="50%">
       <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
       <sub><b>Quick panel</b> — the button grid, its texts, and the panel size</sub>
     </td>
-  </tr>
-  <tr>
-    <td align="center" valign="top" colspan="2">
+    <td align="center" valign="top" width="50%">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
-      <sub><b>Settings</b> — master switch, raid chat and minimap button</sub>
+      <sub><b>Settings</b> — master switch, raid chat, minimap button and the settings profiles</sub>
     </td>
   </tr>
 </table>
