@@ -31,6 +31,11 @@ it is written for players rather than for the diff.
   addon ships with. Where you dragged the windows is deliberately not part of a
   profile — the panels stay where they are when you switch.
 - New command: `/gz profile`, with `new` and `delete`.
+- **The quick panel holds as many buttons as you want.** Two sliders on the
+  Quick panel tab set rows and columns, up to 4 × 4, and every button gets its
+  own text — so `gz` and `ty` can be joined by `wb`, `brb`, `inc` or whatever
+  your group actually types. The panel resizes itself to the grid. Out of the
+  box it is one row of two, exactly as before.
 
 ### Changed
 

@@ -36,10 +36,11 @@ Lightweight, fully configurable, and built for WoW Classic / Anniversary realms.
 - **Settings profiles** — keep more than one set of settings and switch from a
   dropdown on the Settings tab. Every character remembers which one it uses and
   switches to it on login, so a healer can run different messages from a hunter.
-- **Movable quick-button panel** (opt-in) — a small floating panel with two
-  buttons (**gz** / **ty**) that post to your group with a single click. The
-  button texts are fully configurable, the panel remembers its position, and
-  it can be resized from 50% to 200%.
+- **Movable quick-button panel** (opt-in) — a small floating panel whose buttons
+  post to your group with a single click. Two sliders set how many there are
+  (rows × columns, up to 4 × 4) and each one has its own text — **gz** / **ty**
+  to start with. The panel remembers its position and can be resized from 50%
+  to 200%.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
 - **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
@@ -135,8 +136,12 @@ what the range check notices.
 
 **Quick panel**
 
-- Show the floating gz/ty panel, set the two button texts, and adjust the panel
-  size with the slider.
+- Show the floating panel, size its button grid with the **Rows** and
+  **Columns** sliders (up to 4 × 4), give every button its own text, and adjust
+  the panel size with the third slider.
+- The text fields are arranged the way the panel will be, so what you type is
+  where it ends up. Making the grid smaller only hides fields — the texts come
+  back when you make it bigger again.
 
 **Settings**
 

@@ -29,9 +29,10 @@ Lightweight, fully configurable, and built for **WoW Classic / Anniversary** rea
 - **Customizable messages** with placeholders `{name}` and `{level}`.
 - **Per-category delay** — each of the three announcement types has its own
   0–60 s pause before sending (`0` = immediately).
-- **Movable quick-button panel** (opt-in) — a floating panel with two buttons
-  (**gz** / **ty**) that post to your group with one click. Configurable button
-  texts, remembered position, and a size slider (50–200 %).
+- **Movable quick-button panel** (opt-in) — a floating panel whose buttons post
+  to your group with one click. Two sliders set the grid (rows × columns, up to
+  4 × 4) and every button gets its own text; **gz** / **ty** out of the box.
+  Remembered position and a size slider (50–200 %).
 - **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
   "gz" and then thank them all in a single "ty", naming everyone.
 - **Death reply** (opt-in) — say something when a group member dies, when you
@@ -79,7 +80,7 @@ The config window (<code>/gz</code>) is split across six tabs:
     </td>
     <td align="center" valign="top" width="50%">
       <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
-      <sub><b>Quick panel</b> — button texts and panel size</sub>
+      <sub><b>Quick panel</b> — the button grid, its texts, and the panel size</sub>
     </td>
   </tr>
   <tr>
@@ -92,7 +93,7 @@ The config window (<code>/gz</code>) is split across six tabs:
 
 <p align="center">
   <img src="media/example_quick_panel.jpg" width="200" alt="GzLevelUp quick-buttons panel"><br>
-  <sub>The movable quick-buttons panel (gz / ty)</sub>
+  <sub>The movable quick-buttons panel, here in its default 1 × 2 grid</sub>
 </p>
 
 ---
