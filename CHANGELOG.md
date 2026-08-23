@@ -30,12 +30,12 @@ it is written for players rather than for the diff.
   whether it takes your current settings over or starts from the settings the
   addon ships with. Where you dragged the windows is deliberately not part of a
   profile — the panels stay where they are when you switch.
+- New command: `/gz profile`, with `new` and `delete`.
 - **Every character places the windows itself.** Where the quick panel, the
   config window and the minimap button sit is now saved per character instead
   of once for the whole account, so the panel can be bottom right on your
   hunter and next to the raid frames on your healer. Characters that have not
   moved anything yet start from wherever you had it before.
-- New command: `/gz profile`, with `new` and `delete`.
 - **The quick panel holds as many buttons as you want.** Two sliders on the
   Quick panel tab set rows and columns, up to 4 × 4, and every button gets its
   own text — so `gz` and `ty` can be joined by `wb`, `brb`, `inc` or whatever
@@ -50,11 +50,6 @@ it is written for players rather than for the diff.
 - **Restore defaults** resets the profile you are on, not every profile you
   have. Deleting a profile is its own button.
 
-### Upgrading from 1.2
-
-Nothing to do. On the first login your existing settings become a profile
-called *Default*, and every character you log in on starts out using it.
-
 ### Fixed
 
 - **No more "F Unknown" right after joining a group.** When you joined a group
@@ -63,6 +58,13 @@ called *Default*, and every character you log in on starts out using it.
   for the truth and announced a death the moment the real data showed up —
   usually still under the name *Unknown*. A member is now only tracked once
   their name is actually there.
+
+### Upgrading from 1.2
+
+Nothing to do. Your settings become a profile called *Default* on the first
+login, every character starts out using it, and the two quick panel buttons
+keep their texts as the first two of the grid. The windows stay where you left
+them until a character moves one.
 
 ## 1.2
 
