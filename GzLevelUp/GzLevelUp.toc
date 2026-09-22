@@ -1,4 +1,4 @@
-## Interface: 11507
+## Interface: 11507, 16001
 ## Title: GzLevelUp
 ## Notes: Automatically posts "gz" to party/raid chat when a group member levels up.
 ## Notes-deDE: Schreibt automatisch "gz" in den Gruppen-/Raidchat, wenn ein Gruppenmitglied aufsteigt.
