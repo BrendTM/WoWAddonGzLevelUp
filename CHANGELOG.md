@@ -4,6 +4,19 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.4
+
+### New
+
+- **Runs on the World of Warcraft: Forever beta.** The addon now declares the
+  Forever client (1.60.1) alongside Classic Era, so it loads there instead of
+  being greyed out as out of date, and the addon list stops asking you to tick
+  "Load out of date AddOns". Everything works the same as on Era: the same
+  settings, the same profiles, the same windows.
+- Forever installs go into `World of Warcraft/_classic_beta_/Interface/AddOns/`
+  while the beta shares that folder with Classic; the CurseForge app picks the
+  right one for you.
+
 ## 1.3
 
 ### New
