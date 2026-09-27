@@ -220,10 +220,12 @@ local function Format(template, name, level, owner, names)
 end
 
 -- "Brend-Realm" -> "Brend". Cross-realm names arrive with a realm suffix,
--- both from chat and from a resurrect offer.
+-- both from chat and from a resurrect offer. On Forever characters have a
+-- surname, which chat appends with a space ("Brend Dee") while UnitName
+-- returns it separately — so the first name alone is what both agree on.
 local function ShortName(name)
     if not name or name == "" then return nil end
-    return name:match("^([^-]+)") or name
+    return name:match("^([^%s%-]+)") or name
 end
 
 -- Where things sit on screen is saved per character, not per account: the same
@@ -313,8 +315,12 @@ end
 -- A hunter who feigns death is reported as dead by the unit API, which would
 -- be an embarrassing false alarm — so that case is filtered out explicitly.
 local function IsDead(unit)
-    if UnitIsFeignDeath and UnitIsFeignDeath(unit) then return false end
-    return UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) and true or false
+    local feign = UnitIsFeignDeath and UnitIsFeignDeath(unit)
+    local dead = UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit)
+    -- Forever: a secret state is unknown (nil); callers then neither record nor announce anything.
+    if issecretvalue and (issecretvalue(feign) or issecretvalue(dead)) then return nil end
+    if feign then return false end
+    return dead and true or false
 end
 
 -- Right after joining, the roster already lists a member while their unit data
@@ -327,6 +333,8 @@ local UNKNOWN = UNKNOWNOBJECT or "Unknown"
 
 local function UnitReady(unit)
     local name = UnitName(unit)
+    -- Forever: names of units the UI may not analyse are secret and cannot be compared.
+    if issecretvalue and issecretvalue(name) then return false end
     return name ~= nil and name ~= "" and name ~= UNKNOWN
 end
 
@@ -334,7 +342,11 @@ local function RecordDead(unit)
     if not unit or not UnitExists(unit) then return end
     if not UnitReady(unit) then return end
     local guid = UnitGUID(unit)
-    if guid then knownDead[guid] = IsDead(unit) end
+    if issecretvalue and issecretvalue(guid) then return end
+    if not guid then return end
+    -- Unknown (secret) state: keep the last known one rather than erasing it.
+    local dead = IsDead(unit)
+    if dead ~= nil then knownDead[guid] = dead end
 end
 
 -- Silently read every member's current level and alive/dead state, so joining
@@ -581,18 +593,23 @@ local function CheckDeathOrRez(unit)
             or GzLevelUpDB.announceSelfRez) then
         return
     end
-    if not unit or not UnitExists(unit) then return end
+    if not unit then return end
+    -- Only the group matters. Checked first: UNIT_HEALTH also fires for every nameplate, whose
+    -- data is secret on Forever, and this is by far the cheapest test.
+    local kind = UnitCategory(unit)
+    if kind ~= "member" and kind ~= "self" then return end
+
+    if not UnitExists(unit) then return end
     -- No name yet means no usable state either: neither a baseline worth
     -- keeping nor a death worth announcing.
     if not UnitReady(unit) then return end
 
-    local kind = UnitCategory(unit)
-    if kind ~= "member" and kind ~= "self" then return end
-
     local guid = UnitGUID(unit)
-    if not guid then return end
+    if not guid or (issecretvalue and issecretvalue(guid)) then return end
 
     local dead, was = IsDead(unit), knownDead[guid]
+    -- Unknown (secret) state: keep the last known one rather than reading it as a change.
+    if dead == nil then return end
     knownDead[guid] = dead
     -- `was` is nil for a unit we have never seen either way (joined mid-fight),
     -- and neither direction may be answered from a guess.

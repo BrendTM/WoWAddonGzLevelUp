@@ -4,6 +4,24 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.4.1
+
+### New
+
+- **Declared for TBC Anniversary (2.5.6)** and updated for Classic Era 1.15.9,
+  so the addon no longer shows up as out of date on either client.
+
+### Fixed
+
+- **Forever: the auto reply no longer thanks you.** Forever characters have a
+  surname, and your own "gz" was not recognised as yours — the reply ended up
+  as "ty Brend Dee, Alice Smith!". Names are now shortened to the first name,
+  just like a realm suffix is.
+- **Forever: no more errors from nameplates.** Health updates of units the
+  addon does not track (nameplates) are skipped before any of their protected
+  data is read, and an unreadable death state keeps the last known one instead
+  of triggering a false death or resurrect message.
+
 ## 1.4
 
 ### New
