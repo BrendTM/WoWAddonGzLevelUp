@@ -4,8 +4,8 @@
 message to your party or raid chat the moment a group member levels up — so you
 can keep questing, fighting, and looting without breaking your flow.
 
-Lightweight, fully configurable, and built for WoW Classic / Anniversary realms
-— and for the World of Warcraft: Forever beta.
+Lightweight, fully configurable, and built for WoW Classic Era and TBC
+Anniversary realms — and for the World of Warcraft: Forever beta.
 
 ---
 
@@ -245,9 +245,9 @@ player who resurrected you, not you — that line exists to thank them. Example:
 
 ## Compatibility
 
-Built for the WoW Classic / Anniversary client, and it runs on the World of
-Warcraft: Forever beta (1.60.1) too — same settings, same profiles, same
-windows. Messages go to **party** chat;
+Built for the WoW Classic Era (1.15.9) and TBC Anniversary (2.5.6) clients,
+and it runs on the World of Warcraft: Forever beta (1.60.1) too — same
+settings, same profiles, same windows. Messages go to **party** chat;
 **raid** chat is opt-in via a setting, because an automatic "gz" per level-up is
 spam for most 40-man raids. Nothing is sent when you're not in a group.
 

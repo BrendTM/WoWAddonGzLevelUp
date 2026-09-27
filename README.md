@@ -4,8 +4,8 @@
 message to your party or raid chat the moment a group member levels up — so you
 can keep questing, fighting, and looting without breaking your flow.
 
-Lightweight, fully configurable, and built for **WoW Classic / Anniversary**
-realms — and for the **World of Warcraft: Forever** beta.
+Lightweight, fully configurable, and built for **WoW Classic Era** and
+**TBC Anniversary** realms — and for the **World of Warcraft: Forever** beta.
 
 <p align="center">
   <img src="media/logo.png" width="160" alt="GzLevelUp logo">
@@ -116,7 +116,11 @@ Install and auto-update via the
    ```
    World of Warcraft/_classic_era_/Interface/AddOns/GzLevelUp/
    ```
-   On the Forever beta that directory is `_classic_beta_` instead:
+   On TBC Anniversary that directory is `_anniversary_` instead:
+   ```
+   World of Warcraft/_anniversary_/Interface/AddOns/GzLevelUp/
+   ```
+   On the Forever beta it is `_classic_beta_`:
    ```
    World of Warcraft/_classic_beta_/Interface/AddOns/GzLevelUp/
    ```
