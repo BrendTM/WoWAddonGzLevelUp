@@ -220,10 +220,12 @@ local function Format(template, name, level, owner, names)
 end
 
 -- "Brend-Realm" -> "Brend". Cross-realm names arrive with a realm suffix,
--- both from chat and from a resurrect offer.
+-- both from chat and from a resurrect offer. On Forever characters have a
+-- surname, which chat appends with a space ("Brend Dee") while UnitName
+-- returns it separately — so the first name alone is what both agree on.
 local function ShortName(name)
     if not name or name == "" then return nil end
-    return name:match("^([^-]+)") or name
+    return name:match("^([^%s%-]+)") or name
 end
 
 -- Where things sit on screen is saved per character, not per account: the same

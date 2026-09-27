@@ -202,6 +202,14 @@ fire("CHAT_MSG_PARTY", "gz", "Alice-Anotherrealm")
 runTimers()
 check("realm suffix stripped", lastSent(), "ty Alice!")
 
+-- Forever: chat senders carry the surname after a space.
+reset(); levelUp("player")
+fire("CHAT_MSG_PARTY", "gz", "Brend Dee")
+check("my own message ignored with a surname", #timers, 1)
+fire("CHAT_MSG_PARTY", "gz", "Alice Smith")
+runTimers()
+check("surname stripped", lastSent(), "ty Alice!")
+
 section("auto reply: listening window closes")
 reset(); levelUp("player")
 runTimers() -- nobody said anything, so the window expires
