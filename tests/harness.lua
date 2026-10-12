@@ -10,6 +10,7 @@
 --   timers    - queued C_Timer.After callbacks, { sec, fn }
 --   world     - the simulated group; edit levels and dead/feign/far flags here
 --   inRaid    - flips IsInRaid()
+--   chatLockdown - what C_ChatInfo.InChatMessagingLockdown() returns
 --   realm     - what GetRealmName() returns; with world.player.name it decides
 --               which character profiles are bound to
 --   now       - what GetTime() returns; move it forward to age things out
@@ -20,8 +21,12 @@
 
 local M = {}
 
-sent, timers, handler = {}, {}, nil
+sent, timers = {}, {}
 inRaid = false
+
+-- Every frame that set an OnEvent script, in creation order. fire() hands an
+-- event to each of them that registered it, the way the game does.
+local eventFrames = {}
 
 -- The simulated group. Levels are mutated by the tests to trigger level-ups.
 world = {
@@ -64,6 +69,11 @@ function GetTime()     return now end
 
 -- --- Chat ------------------------------------------------------------------
 function SendChatMessage(msg, chan) sent[#sent + 1] = { msg = msg, chan = chan } end
+
+-- The chat messaging lockdown (combat in an instance). Tests flip the flag and
+-- fire the events the game would send when it ends.
+chatLockdown = false
+C_ChatInfo = { InChatMessagingLockdown = function() return chatLockdown end }
 
 testPrint = print
 function print() end -- the addon's chat output is noise during tests
@@ -133,12 +143,16 @@ end
 -- indexable, so a method call (frame:SetPoint(...)) and a sub-widget lookup
 -- (slider.Low:SetText(...)) both work without knowing which one the addon meant.
 local function frameStub()
-    local self = { _w = 0, _h = 0, _text = "", _children = {}, _scripts = {} }
+    local self = { _w = 0, _h = 0, _text = "", _children = {}, _scripts = {}, _events = {} }
     local real = {
         SetScript = function(o, script, fn)
-            if script == "OnEvent" then handler = fn end
+            if script == "OnEvent" then eventFrames[#eventFrames + 1] = o end
             o._scripts[script] = fn
         end,
+        -- Real, so an event only reaches the frames that asked for it.
+        RegisterEvent       = function(o, event) o._events[event] = true end,
+        UnregisterEvent     = function(o, event) o._events[event] = nil end,
+        UnregisterAllEvents = function(o) o._events = {} end,
         -- Kept so a test can click a button: GetScript("OnClick")().
         GetScript = function(o, script) return o._scripts[script] end,
         SetText   = function(o, s) o._text = s or "" end,
@@ -193,8 +207,15 @@ end
 
 -- --- Test controls ---------------------------------------------------------
 
--- Deliver an event to the addon's OnEvent handler.
-function fire(event, arg1, arg2) handler(nil, event, arg1, arg2) end
+-- Deliver an event to every frame that registered it. A snapshot, because a
+-- handler may unregister itself on the way.
+function fire(event, ...)
+    local targets = {}
+    for _, f in ipairs(eventFrames) do
+        if f._events[event] then targets[#targets + 1] = f end
+    end
+    for _, f in ipairs(targets) do f._scripts.OnEvent(f, event, ...) end
+end
 
 -- Let time pass: run every queued callback once.
 function runTimers()
@@ -214,6 +235,8 @@ function M.loadAddon(root)
         if key then toc[key] = value end
     end
 
+    -- A reload starts over: the previous copy's frames must not answer anymore.
+    eventFrames = {}
     local ns = {}
     for _, file in ipairs({ "Locale.lua", "GzLevelUp.lua" }) do
         local path = root .. "/GzLevelUp/" .. file

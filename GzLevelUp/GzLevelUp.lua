@@ -399,13 +399,48 @@ local function GroupChannel()
     return nil
 end
 
+local SendNow
+
+-- Forever: addons may not send chat messages in combat in instances ("chat messaging lockdown");
+-- SendChatMessage is blocked then. Messages wait until the lockdown ends. Older than two minutes
+-- they are dropped, so a long fight doesn't end in a burst of stale lines. On Classic and TBC
+-- the check does not exist and messages go out immediately as before.
+local InChatLockdown = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown or function() return false end
+local LOCKDOWN_MAX_AGE = 120
+local lockdownQueue = {}
+local lockdownFrame
+
+local function FlushLockdownQueue()
+    if InChatLockdown() then return end
+    local queue = lockdownQueue
+    lockdownQueue = {}
+    for _, entry in ipairs(queue) do
+        if not GetTime or GetTime() - entry.at <= LOCKDOWN_MAX_AGE then SendNow(entry.msg) end
+    end
+    if #lockdownQueue == 0 and lockdownFrame then lockdownFrame:UnregisterAllEvents() end
+end
+
+local function QueueForLockdown(msg)
+    lockdownQueue[#lockdownQueue + 1] = { msg = msg, at = GetTime and GetTime() or 0 }
+    if not lockdownFrame then
+        lockdownFrame = CreateFrame("Frame")
+        lockdownFrame:SetScript("OnEvent", FlushLockdownQueue)
+    end
+    pcall(lockdownFrame.RegisterEvent, lockdownFrame, "ADDON_RESTRICTION_STATE_CHANGED")
+    lockdownFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
+
 -- Sends the (already formatted) message to party/raid chat.
 -- Channel and conditions are only checked at the actual moment of sending,
 -- since the group may have changed during a delay.
-local function SendNow(msg)
+function SendNow(msg)
     if not GzLevelUpDB.enabled then return end
     local channel = GroupChannel()
     if not channel then return end
+    if InChatLockdown() then
+        QueueForLockdown(msg)
+        return
+    end
     SendChatMessage(msg, channel)
 end
 
@@ -680,10 +715,9 @@ local function SendReply(session)
     reply.listening, reply.pending = false, false
     if #reply.names == 0 then return end
     if not GzLevelUpDB.enabled or not GzLevelUpDB.autoReplyEnabled then return end
-    -- Re-check the channel: the group may have changed while we collected.
-    local channel = GroupChannel()
-    if not channel then return end
-    SendChatMessage(FormatReply(GzLevelUpDB.replyMessage, reply.names), channel)
+    -- SendNow re-checks the channel (the group may have changed while we
+    -- collected) and holds the reply back during a chat lockdown.
+    SendNow(FormatReply(GzLevelUpDB.replyMessage, reply.names))
 end
 
 -- Opens the listening window after my own level-up. Deliberately independent
@@ -755,10 +789,13 @@ local quickPanel
 local function ManualSend(text)
     if not text or text == "" then return end
     local channel = GroupChannel()
-    if channel then
-        SendChatMessage(text, channel)
-    else
+    if not channel then
         print(PREFIX .. L.NOT_IN_GROUP)
+    elseif InChatLockdown() then
+        -- A click should act right away, so no queue here: just say why nothing happened.
+        print(PREFIX .. L.CHAT_LOCKDOWN)
+    else
+        SendChatMessage(text, channel)
     end
 end
 

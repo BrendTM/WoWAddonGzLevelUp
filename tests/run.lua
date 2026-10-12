@@ -591,6 +591,49 @@ slash("delay 3")
 check("delay all reaches rez", GzLevelUpDB.rezDelay, 3)
 check("delay all reaches my rez", GzLevelUpDB.selfRezDelay, 3)
 
+section("chat lockdown: held back until the fight is over")
+GzLevelUpDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+fire("GROUP_ROSTER_UPDATE")
+
+chatLockdown = true
+reset(); levelUp("party1")
+check("nothing goes out during the lockdown", #sent, 0)
+
+-- Leaving combat while the lockdown still holds changes nothing yet.
+fire("PLAYER_REGEN_ENABLED")
+check("still held while locked", #sent, 0)
+
+chatLockdown = false
+fire("ADDON_RESTRICTION_STATE_CHANGED")
+check("sent once the lockdown ends", lastSent(), "Gz Alice!")
+check("and only once", #sent, 1)
+fire("PLAYER_REGEN_ENABLED")
+check("the queue is empty afterwards", #sent, 1)
+
+-- A long fight drops what has gone stale instead of bursting it all out.
+chatLockdown = true
+reset(); levelUp("party1")
+now = now + 150
+levelUp("party2")
+chatLockdown = false
+fire("PLAYER_REGEN_ENABLED")
+check("only the fresh line survives", #sent, 1)
+check("which is the recent one", lastSent(), "Gz Bob!")
+now = 0
+
+-- The auto reply goes through the same queue.
+GzLevelUpDB.autoReplyEnabled = true
+reset(); levelUp("player")
+fire("CHAT_MSG_PARTY", "gz!", "Alice")
+chatLockdown = true
+runTimers()
+check("the reply waits as well", #sent, 0)
+chatLockdown = false
+fire("PLAYER_REGEN_ENABLED")
+check("and follows after the fight", lastSent(), "ty Alice!")
+GzLevelUpDB.autoReplyEnabled = false
+
 section("quick panel: the button grid")
 fire("PLAYER_ENTERING_WORLD")
 local panel = GzLevelUpQuickPanel
@@ -619,6 +662,13 @@ check("taller", panel:GetHeight(), panelH(2))
 GzLevelUpDB.quickPanelEnabled = true
 reset(); panel.buttons[5]:GetScript("OnClick")()
 check("a button sends its own slot's text", lastSent(), "brb")
+
+-- A click is meant for right now, so the lockdown does not queue it for later.
+chatLockdown = true
+reset(); panel.buttons[5]:GetScript("OnClick")()
+chatLockdown = false
+fire("PLAYER_REGEN_ENABLED")
+check("a click during the lockdown is not sent later", #sent, 0)
 
 -- Shrinking hides the leftovers rather than leaving them floating.
 GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 1, 2
