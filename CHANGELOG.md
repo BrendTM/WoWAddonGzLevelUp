@@ -4,6 +4,27 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.4.2
+
+### Fixed
+
+- **No more "wb" for everyone who runs back in after a wipe.** A released group
+  member who walks into the instance portal is revived at the entrance, and that
+  was announced as a resurrection. A ghost now only counts as resurrected when
+  somebody actually cast a resurrect on them, which still works inside the
+  dungeon.
+- **No wrong "ty" after declining a resurrect.** If you released instead and
+  walked through the portal next to whoever had offered, you thanked them anyway.
+  Releasing now ends the offer; one made to your ghost afterwards still counts.
+- **Forever: messages in combat inside instances.** Forever blocks addon chat
+  during combat in instances. Announcements and the auto reply now wait until
+  the fight is over, and anything older than two minutes by then is dropped
+  instead of arriving late. Clicking a quick-panel button during the lockdown
+  tells you why nothing was sent.
+- **Forever: your own "ty" no longer depends on a range check the game keeps
+  hidden.** When the distance to whoever rezzed you cannot be read, the offer
+  is kept, the same as for someone outside the group.
+
 ## 1.4.1
 
 ### New
