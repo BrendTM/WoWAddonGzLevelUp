@@ -128,7 +128,11 @@ Deaths rarely come alone, so they are collected for a moment and answered with a
 A hunter feigning death is not a death, and a corpse that was already on the
 floor when you joined is not announced either.
 
-Getting a group member back up counts however it happened, corpse run included.
+A group member counts as back up when they were resurrected where they fell,
+whether by another player, a soulstone or Reincarnation. Once they have released,
+a corpse run, the spirit healer or walking into the instance portal is not a
+resurrection; only a resurrect cast on them still is. After a wipe you no longer
+get a "wb" for everyone who runs back in.
 Your own line is the exception: it is only sent when another player actually
 resurrected you and is still in range when you get up, and `{name}` is that
 player. A corpse run or the spirit healer leaves nobody to thank — the spirit
