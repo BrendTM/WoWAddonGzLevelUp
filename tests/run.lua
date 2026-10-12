@@ -39,7 +39,7 @@ end
 
 local function revive(...)
     for _, unit in ipairs({ ... }) do
-        world[unit].dead = false
+        world[unit].dead, world[unit].ghost = false, false
         fire("UNIT_HEALTH", unit)
     end
 end
@@ -508,6 +508,58 @@ world.party1.dead, world.party1.feign = false, false
 reset(); fire("UNIT_HEALTH", "party1")
 check("getting up from feign death is not a rez", #timers, 0)
 
+section("rez reply: a ghost getting back on their feet")
+-- Released and walked into the instance portal: the game revives them at the
+-- entrance. After a wipe the whole group does that one by one.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+reset(); revive("party1")
+check("a ghost through the portal stays silent", #timers, 0)
+
+-- Releasing first and only then dying "again" is still the same corpse.
+world.party1.dead = true
+fire("UNIT_HEALTH", "party1")
+world.party1.ghost = true
+reset(); fire("UNIT_HEALTH", "party1")
+check("releasing is not a new death", #timers, 0)
+
+-- But a ghost can still be rezzed in the dungeon, and the combat log sees it.
+logRez("G-alice")
+reset(); revive("party1")
+runTimers()
+check("a rezzed ghost is welcomed back", lastSent(), "wb Alice")
+
+-- The cast was used up by that comeback.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+reset(); revive("party1")
+check("a cast only counts once", #timers, 0)
+
+-- One that is older than the dialog it opened does not count either.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+logRez("G-alice")
+now = now + 90
+reset(); revive("party1")
+check("a stale cast does not count", #timers, 0)
+now = 0
+
+-- A cast on somebody else is not about this ghost.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+logRez("G-bob")
+reset(); revive("party1")
+check("a cast on another member does not count", #timers, 0)
+
+-- Only resurrects are taken from the log.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+combatLog = { now, "SPELL_HEAL", false, "G-caster", "Caster", 0, 0, "G-alice", "Alice", 0, 0 }
+fire("COMBAT_LOG_EVENT_UNFILTERED")
+combatLog = {}
+reset(); revive("party1")
+check("a heal is not a resurrect", #timers, 0)
+
 section("rez reply: my own")
 GzLevelUpDB.announceSelfRez = true
 GzLevelUpDB.selfRezMessage = "ty {name}"
@@ -561,6 +613,34 @@ now = now + 90
 reset(); revive("player")
 check("a stale offer does not count", #timers, 0)
 now = 0
+
+-- Declining by releasing ends the offer: walking into the portal right after,
+-- next to whoever offered, is still my own doing.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+world.player.ghost = true
+fire("PLAYER_ALIVE")
+reset(); revive("player")
+check("releasing drops the offer", #timers, 0)
+
+-- Released in a dungeon, the loading screen reports the ghost first.
+runTimers() -- close any open batch, so the timer count below is only ours
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+world.player.ghost = true
+fire("PLAYER_ENTERING_WORLD")
+reset(); revive("player")
+check("also when a loading screen saw it first", #timers, 0)
+
+-- A ghost can still be rezzed; that sends a fresh offer, which counts.
+world.player.dead, world.player.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+reset(); revive("player")
+runTimers()
+check("an offer made to my ghost still counts", lastSent(), "ty Alice")
 
 -- My line and the member line are separate, even when the person who rezzed me
 -- was rezzed in the same window: my own entry is kept apart from the name list.

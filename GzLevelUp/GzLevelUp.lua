@@ -153,6 +153,20 @@ local knownLevels = {}
 -- never been seen alive, so it is not announced either.
 local knownDead = {}
 
+-- GUID -> was that unit a ghost (released) when last seen? A ghost coming back
+-- to life usually ran back to its corpse, took the spirit healer or walked into
+-- an instance portal, which revives it at the entrance. None of that is
+-- somebody getting them up, so it only counts as a resurrect when the combat
+-- log saw a resurrect spell land on them.
+local knownGhost = {}
+
+-- Who offered me the last resurrect, so my own line can thank them by name.
+-- Only another player's spell fires RESURRECT_REQUEST — a spirit healer or a
+-- soulstone does not — which is exactly the line between "somebody got me up"
+-- and "I got myself up".
+local rezOffer = { name = nil, at = 0 }
+local REZ_OFFER_WINDOW = 60 -- the in-game dialog does not last any longer
+
 local PREFIX = "|cff33ff99GzLevelUp|r: "
 
 -- Settings are plain values with one exception, the panel's button list, so
@@ -323,6 +337,22 @@ local function IsDead(unit)
     return dead and true or false
 end
 
+-- Released, i.e. running around as a ghost. Secret counts as "no".
+local function IsGhost(unit)
+    local ghost = UnitIsGhost and UnitIsGhost(unit)
+    if issecretvalue and issecretvalue(ghost) then return false end
+    return ghost and true or false
+end
+
+-- Releasing ends whatever was offered on my corpse, so a declined offer can't
+-- turn the next portal into a "ty". A resurrect cast on the corpse afterwards
+-- sends a fresh offer, which is still answered.
+local function StoreGhost(unit, guid)
+    local ghost = IsGhost(unit)
+    if ghost and not knownGhost[guid] and guid == UnitGUID("player") then rezOffer.name = nil end
+    knownGhost[guid] = ghost
+end
+
 -- Right after joining, the roster already lists a member while their unit data
 -- is still on its way: the name reads as "Unknown" and the health API claims
 -- they are alive. Taking that as the alive/dead baseline turned a member who
@@ -346,7 +376,10 @@ local function RecordDead(unit)
     if not guid then return end
     -- Unknown (secret) state: keep the last known one rather than erasing it.
     local dead = IsDead(unit)
-    if dead ~= nil then knownDead[guid] = dead end
+    if dead ~= nil then
+        knownDead[guid] = dead
+        StoreGhost(unit, guid)
+    end
 end
 
 -- Silently read every member's current level and alive/dead state, so joining
@@ -508,13 +541,6 @@ local function FlushDeaths(session)
     end
 end
 
--- Who offered me the last resurrect, so my own line can thank them by name.
--- Only another player's spell fires RESURRECT_REQUEST — a spirit healer or a
--- soulstone does not — which is exactly the line between "somebody got me up"
--- and "I got myself up".
-local rezOffer = { name = nil, at = 0 }
-local REZ_OFFER_WINDOW = 60 -- the in-game dialog does not last any longer
-
 local function RememberRezOffer(caster)
     rezOffer.name, rezOffer.at = ShortName(caster), GetTime and GetTime() or 0
 end
@@ -562,6 +588,29 @@ local function ClaimRezOffer()
     if GetTime and (GetTime() - when) > REZ_OFFER_WINDOW then return nil end
     if not StillNearby(who) then return nil end
     return who
+end
+
+-- Resurrect spells the combat log saw land: GUID -> GetTime(). RESURRECT_REQUEST
+-- only reports offers made to me, so this is the one way to tell a member's
+-- ghost that got rezzed from one that walked into a portal.
+local rezCasts = {}
+
+local function OnCombatLog()
+    if not GzLevelUpDB.announceRez then return end
+    local _, sub, _, _, _, _, _, destGUID = CombatLogGetCurrentEventInfo()
+    -- Forever: a secret field cannot even be compared.
+    if issecretvalue and (issecretvalue(sub) or issecretvalue(destGUID)) then return end
+    if sub ~= "SPELL_RESURRECT" or not destGUID then return end
+    rezCasts[destGUID] = GetTime and GetTime() or 0
+end
+
+-- Hands out a cast on that GUID once. It gets the same window as an offer: the
+-- dialog it opened does not last any longer either.
+local function ClaimRezCast(guid)
+    local at = rezCasts[guid]
+    rezCasts[guid] = nil
+    if not at then return false end
+    return not GetTime or (GetTime() - at) <= REZ_OFFER_WINDOW
 end
 
 local function FlushRezzes(session)
@@ -647,7 +696,9 @@ local function CheckDeathOrRez(unit)
     local dead, was = IsDead(unit), knownDead[guid]
     -- Unknown (secret) state: keep the last known one rather than reading it as a change.
     if dead == nil then return end
+    local wasGhost = knownGhost[guid]
     knownDead[guid] = dead
+    StoreGhost(unit, guid)
     -- `was` is nil for a unit we have never seen either way (joined mid-fight),
     -- and neither direction may be answered from a guess.
     if was == nil or dead == was then return end
@@ -665,7 +716,9 @@ local function CheckDeathOrRez(unit)
             local who = ClaimRezOffer()
             if who then QueueRez(kind, who, UnitLevel(unit)) end
         else
-            QueueRez(kind, UnitName(unit), UnitLevel(unit))
+            -- Claimed either way, so a cast can't linger into a later comeback.
+            local cast = ClaimRezCast(guid)
+            if not wasGhost or cast then QueueRez(kind, UnitName(unit), UnitLevel(unit)) end
         end
     end
 end
@@ -1146,11 +1199,17 @@ f:RegisterEvent("PLAYER_DEAD")
 f:RegisterEvent("PLAYER_ALIVE")
 f:RegisterEvent("PLAYER_UNGHOST")
 f:RegisterEvent("RESURRECT_REQUEST")
+-- Whether a member's ghost was rezzed or walked into a portal. Guarded: a
+-- client that keeps the combat log from addons just loses that distinction.
+if CombatLogGetCurrentEventInfo then pcall(f.RegisterEvent, f, "COMBAT_LOG_EVENT_UNFILTERED") end
 -- The last chance to copy the live settings into the active profile.
 f:RegisterEvent("PLAYER_LOGOUT")
 for event in pairs(REPLY_EVENTS) do f:RegisterEvent(event) end
 f:SetScript("OnEvent", function(self, event, arg1, arg2)
-    if event == "ADDON_LOADED" then
+    -- First, since it fires far more often than everything else together.
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        OnCombatLog()
+    elseif event == "ADDON_LOADED" then
         if arg1 == ADDON then
             ApplyDefaults()
             InitProfiles()

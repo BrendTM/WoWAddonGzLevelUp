@@ -10,6 +10,7 @@
 --   timers    - queued C_Timer.After callbacks, { sec, fn }
 --   world     - the simulated group; edit levels and dead/feign/far flags here
 --   inRaid    - flips IsInRaid()
+--   logRez()  - a resurrect spell lands on a GUID, via the combat log
 --   chatLockdown - what C_ChatInfo.InChatMessagingLockdown() returns
 --   realm     - what GetRealmName() returns; with world.player.name it decides
 --               which character profiles are bound to
@@ -47,6 +48,20 @@ function UnitName(u)   return world[u] and world[u].name end
 -- Death state. Tests set world.<unit>.dead / .feign and then fire UNIT_HEALTH.
 function UnitIsDeadOrGhost(u) return world[u] ~= nil and world[u].dead == true end
 function UnitIsFeignDeath(u)  return world[u] ~= nil and world[u].feign == true end
+-- Released: .ghost on top of .dead, as UnitIsDeadOrGhost covers both.
+function UnitIsGhost(u)       return world[u] ~= nil and world[u].ghost == true end
+
+-- The combat log entry currently being delivered. Tests fill it and fire
+-- COMBAT_LOG_EVENT_UNFILTERED, see logRez().
+combatLog = {}
+function CombatLogGetCurrentEventInfo() return unpack(combatLog) end
+
+-- A resurrect spell landing on someone, as the combat log reports it.
+function logRez(destGUID)
+    combatLog = { now, "SPELL_RESURRECT", false, "G-caster", "Caster", 0, 0, destGUID, "Target", 0, 0 }
+    fire("COMBAT_LOG_EVENT_UNFILTERED")
+    combatLog = {}
+end
 
 -- Range check, as (inRange, checkedRange). Tests set world.<unit>.far = true to
 -- move somebody away; a unit the game does not know cannot be checked at all.
