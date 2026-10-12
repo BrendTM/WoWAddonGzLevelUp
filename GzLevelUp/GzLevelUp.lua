@@ -546,6 +546,8 @@ local function StillNearby(name)
     if not unit then return true end
 
     local inRange, checked = UnitInRange(unit)
+    -- Forever: range can be secret; that is no clear "out of range" either.
+    if issecretvalue and (issecretvalue(inRange) or issecretvalue(checked)) then return true end
     if not checked then return true end
     return inRange and true or false
 end
