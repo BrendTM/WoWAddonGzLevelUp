@@ -153,6 +153,20 @@ local knownLevels = {}
 -- never been seen alive, so it is not announced either.
 local knownDead = {}
 
+-- GUID -> was that unit a ghost (released) when last seen? A ghost coming back
+-- to life usually ran back to its corpse, took the spirit healer or walked into
+-- an instance portal, which revives it at the entrance. None of that is
+-- somebody getting them up, so it only counts as a resurrect when the combat
+-- log saw a resurrect spell land on them.
+local knownGhost = {}
+
+-- Who offered me the last resurrect, so my own line can thank them by name.
+-- Only another player's spell fires RESURRECT_REQUEST — a spirit healer or a
+-- soulstone does not — which is exactly the line between "somebody got me up"
+-- and "I got myself up".
+local rezOffer = { name = nil, at = 0 }
+local REZ_OFFER_WINDOW = 60 -- the in-game dialog does not last any longer
+
 local PREFIX = "|cff33ff99GzLevelUp|r: "
 
 -- Settings are plain values with one exception, the panel's button list, so
@@ -323,6 +337,22 @@ local function IsDead(unit)
     return dead and true or false
 end
 
+-- Released, i.e. running around as a ghost. Secret counts as "no".
+local function IsGhost(unit)
+    local ghost = UnitIsGhost and UnitIsGhost(unit)
+    if issecretvalue and issecretvalue(ghost) then return false end
+    return ghost and true or false
+end
+
+-- Releasing ends whatever was offered on my corpse, so a declined offer can't
+-- turn the next portal into a "ty". A resurrect cast on the corpse afterwards
+-- sends a fresh offer, which is still answered.
+local function StoreGhost(unit, guid)
+    local ghost = IsGhost(unit)
+    if ghost and not knownGhost[guid] and guid == UnitGUID("player") then rezOffer.name = nil end
+    knownGhost[guid] = ghost
+end
+
 -- Right after joining, the roster already lists a member while their unit data
 -- is still on its way: the name reads as "Unknown" and the health API claims
 -- they are alive. Taking that as the alive/dead baseline turned a member who
@@ -346,7 +376,10 @@ local function RecordDead(unit)
     if not guid then return end
     -- Unknown (secret) state: keep the last known one rather than erasing it.
     local dead = IsDead(unit)
-    if dead ~= nil then knownDead[guid] = dead end
+    if dead ~= nil then
+        knownDead[guid] = dead
+        StoreGhost(unit, guid)
+    end
 end
 
 -- Silently read every member's current level and alive/dead state, so joining
@@ -399,13 +432,48 @@ local function GroupChannel()
     return nil
 end
 
+local SendNow
+
+-- Forever: addons may not send chat messages in combat in instances ("chat messaging lockdown");
+-- SendChatMessage is blocked then. Messages wait until the lockdown ends. Older than two minutes
+-- they are dropped, so a long fight doesn't end in a burst of stale lines. On Classic and TBC
+-- the check does not exist and messages go out immediately as before.
+local InChatLockdown = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown or function() return false end
+local LOCKDOWN_MAX_AGE = 120
+local lockdownQueue = {}
+local lockdownFrame
+
+local function FlushLockdownQueue()
+    if InChatLockdown() then return end
+    local queue = lockdownQueue
+    lockdownQueue = {}
+    for _, entry in ipairs(queue) do
+        if not GetTime or GetTime() - entry.at <= LOCKDOWN_MAX_AGE then SendNow(entry.msg) end
+    end
+    if #lockdownQueue == 0 and lockdownFrame then lockdownFrame:UnregisterAllEvents() end
+end
+
+local function QueueForLockdown(msg)
+    lockdownQueue[#lockdownQueue + 1] = { msg = msg, at = GetTime and GetTime() or 0 }
+    if not lockdownFrame then
+        lockdownFrame = CreateFrame("Frame")
+        lockdownFrame:SetScript("OnEvent", FlushLockdownQueue)
+    end
+    pcall(lockdownFrame.RegisterEvent, lockdownFrame, "ADDON_RESTRICTION_STATE_CHANGED")
+    lockdownFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
+
 -- Sends the (already formatted) message to party/raid chat.
 -- Channel and conditions are only checked at the actual moment of sending,
 -- since the group may have changed during a delay.
-local function SendNow(msg)
+function SendNow(msg)
     if not GzLevelUpDB.enabled then return end
     local channel = GroupChannel()
     if not channel then return end
+    if InChatLockdown() then
+        QueueForLockdown(msg)
+        return
+    end
     SendChatMessage(msg, channel)
 end
 
@@ -473,13 +541,6 @@ local function FlushDeaths(session)
     end
 end
 
--- Who offered me the last resurrect, so my own line can thank them by name.
--- Only another player's spell fires RESURRECT_REQUEST — a spirit healer or a
--- soulstone does not — which is exactly the line between "somebody got me up"
--- and "I got myself up".
-local rezOffer = { name = nil, at = 0 }
-local REZ_OFFER_WINDOW = 60 -- the in-game dialog does not last any longer
-
 local function RememberRezOffer(caster)
     rezOffer.name, rezOffer.at = ShortName(caster), GetTime and GetTime() or 0
 end
@@ -511,6 +572,8 @@ local function StillNearby(name)
     if not unit then return true end
 
     local inRange, checked = UnitInRange(unit)
+    -- Forever: range can be secret; that is no clear "out of range" either.
+    if issecretvalue and (issecretvalue(inRange) or issecretvalue(checked)) then return true end
     if not checked then return true end
     return inRange and true or false
 end
@@ -525,6 +588,29 @@ local function ClaimRezOffer()
     if GetTime and (GetTime() - when) > REZ_OFFER_WINDOW then return nil end
     if not StillNearby(who) then return nil end
     return who
+end
+
+-- Resurrect spells the combat log saw land: GUID -> GetTime(). RESURRECT_REQUEST
+-- only reports offers made to me, so this is the one way to tell a member's
+-- ghost that got rezzed from one that walked into a portal.
+local rezCasts = {}
+
+local function OnCombatLog()
+    if not GzLevelUpDB.announceRez then return end
+    local _, sub, _, _, _, _, _, destGUID = CombatLogGetCurrentEventInfo()
+    -- Forever: a secret field cannot even be compared.
+    if issecretvalue and (issecretvalue(sub) or issecretvalue(destGUID)) then return end
+    if sub ~= "SPELL_RESURRECT" or not destGUID then return end
+    rezCasts[destGUID] = GetTime and GetTime() or 0
+end
+
+-- Hands out a cast on that GUID once. It gets the same window as an offer: the
+-- dialog it opened does not last any longer either.
+local function ClaimRezCast(guid)
+    local at = rezCasts[guid]
+    rezCasts[guid] = nil
+    if not at then return false end
+    return not GetTime or (GetTime() - at) <= REZ_OFFER_WINDOW
 end
 
 local function FlushRezzes(session)
@@ -610,7 +696,9 @@ local function CheckDeathOrRez(unit)
     local dead, was = IsDead(unit), knownDead[guid]
     -- Unknown (secret) state: keep the last known one rather than reading it as a change.
     if dead == nil then return end
+    local wasGhost = knownGhost[guid]
     knownDead[guid] = dead
+    StoreGhost(unit, guid)
     -- `was` is nil for a unit we have never seen either way (joined mid-fight),
     -- and neither direction may be answered from a guess.
     if was == nil or dead == was then return end
@@ -628,7 +716,9 @@ local function CheckDeathOrRez(unit)
             local who = ClaimRezOffer()
             if who then QueueRez(kind, who, UnitLevel(unit)) end
         else
-            QueueRez(kind, UnitName(unit), UnitLevel(unit))
+            -- Claimed either way, so a cast can't linger into a later comeback.
+            local cast = ClaimRezCast(guid)
+            if not wasGhost or cast then QueueRez(kind, UnitName(unit), UnitLevel(unit)) end
         end
     end
 end
@@ -680,10 +770,9 @@ local function SendReply(session)
     reply.listening, reply.pending = false, false
     if #reply.names == 0 then return end
     if not GzLevelUpDB.enabled or not GzLevelUpDB.autoReplyEnabled then return end
-    -- Re-check the channel: the group may have changed while we collected.
-    local channel = GroupChannel()
-    if not channel then return end
-    SendChatMessage(FormatReply(GzLevelUpDB.replyMessage, reply.names), channel)
+    -- SendNow re-checks the channel (the group may have changed while we
+    -- collected) and holds the reply back during a chat lockdown.
+    SendNow(FormatReply(GzLevelUpDB.replyMessage, reply.names))
 end
 
 -- Opens the listening window after my own level-up. Deliberately independent
@@ -755,10 +844,13 @@ local quickPanel
 local function ManualSend(text)
     if not text or text == "" then return end
     local channel = GroupChannel()
-    if channel then
-        SendChatMessage(text, channel)
-    else
+    if not channel then
         print(PREFIX .. L.NOT_IN_GROUP)
+    elseif InChatLockdown() then
+        -- A click should act right away, so no queue here: just say why nothing happened.
+        print(PREFIX .. L.CHAT_LOCKDOWN)
+    else
+        SendChatMessage(text, channel)
     end
 end
 
@@ -1107,11 +1199,17 @@ f:RegisterEvent("PLAYER_DEAD")
 f:RegisterEvent("PLAYER_ALIVE")
 f:RegisterEvent("PLAYER_UNGHOST")
 f:RegisterEvent("RESURRECT_REQUEST")
+-- Whether a member's ghost was rezzed or walked into a portal. Guarded: a
+-- client that keeps the combat log from addons just loses that distinction.
+if CombatLogGetCurrentEventInfo then pcall(f.RegisterEvent, f, "COMBAT_LOG_EVENT_UNFILTERED") end
 -- The last chance to copy the live settings into the active profile.
 f:RegisterEvent("PLAYER_LOGOUT")
 for event in pairs(REPLY_EVENTS) do f:RegisterEvent(event) end
 f:SetScript("OnEvent", function(self, event, arg1, arg2)
-    if event == "ADDON_LOADED" then
+    -- First, since it fires far more often than everything else together.
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        OnCombatLog()
+    elseif event == "ADDON_LOADED" then
         if arg1 == ADDON then
             ApplyDefaults()
             InitProfiles()

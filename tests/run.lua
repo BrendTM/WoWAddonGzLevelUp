@@ -39,7 +39,7 @@ end
 
 local function revive(...)
     for _, unit in ipairs({ ... }) do
-        world[unit].dead = false
+        world[unit].dead, world[unit].ghost = false, false
         fire("UNIT_HEALTH", unit)
     end
 end
@@ -508,6 +508,58 @@ world.party1.dead, world.party1.feign = false, false
 reset(); fire("UNIT_HEALTH", "party1")
 check("getting up from feign death is not a rez", #timers, 0)
 
+section("rez reply: a ghost getting back on their feet")
+-- Released and walked into the instance portal: the game revives them at the
+-- entrance. After a wipe the whole group does that one by one.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+reset(); revive("party1")
+check("a ghost through the portal stays silent", #timers, 0)
+
+-- Releasing first and only then dying "again" is still the same corpse.
+world.party1.dead = true
+fire("UNIT_HEALTH", "party1")
+world.party1.ghost = true
+reset(); fire("UNIT_HEALTH", "party1")
+check("releasing is not a new death", #timers, 0)
+
+-- But a ghost can still be rezzed in the dungeon, and the combat log sees it.
+logRez("G-alice")
+reset(); revive("party1")
+runTimers()
+check("a rezzed ghost is welcomed back", lastSent(), "wb Alice")
+
+-- The cast was used up by that comeback.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+reset(); revive("party1")
+check("a cast only counts once", #timers, 0)
+
+-- One that is older than the dialog it opened does not count either.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+logRez("G-alice")
+now = now + 90
+reset(); revive("party1")
+check("a stale cast does not count", #timers, 0)
+now = 0
+
+-- A cast on somebody else is not about this ghost.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+logRez("G-bob")
+reset(); revive("party1")
+check("a cast on another member does not count", #timers, 0)
+
+-- Only resurrects are taken from the log.
+world.party1.dead, world.party1.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+combatLog = { now, "SPELL_HEAL", false, "G-caster", "Caster", 0, 0, "G-alice", "Alice", 0, 0 }
+fire("COMBAT_LOG_EVENT_UNFILTERED")
+combatLog = {}
+reset(); revive("party1")
+check("a heal is not a resurrect", #timers, 0)
+
 section("rez reply: my own")
 GzLevelUpDB.announceSelfRez = true
 GzLevelUpDB.selfRezMessage = "ty {name}"
@@ -562,6 +614,34 @@ reset(); revive("player")
 check("a stale offer does not count", #timers, 0)
 now = 0
 
+-- Declining by releasing ends the offer: walking into the portal right after,
+-- next to whoever offered, is still my own doing.
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+world.player.ghost = true
+fire("PLAYER_ALIVE")
+reset(); revive("player")
+check("releasing drops the offer", #timers, 0)
+
+-- Released in a dungeon, the loading screen reports the ghost first.
+runTimers() -- close any open batch, so the timer count below is only ours
+world.player.dead = true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+world.player.ghost = true
+fire("PLAYER_ENTERING_WORLD")
+reset(); revive("player")
+check("also when a loading screen saw it first", #timers, 0)
+
+-- A ghost can still be rezzed; that sends a fresh offer, which counts.
+world.player.dead, world.player.ghost = true, true
+fire("GROUP_ROSTER_UPDATE")
+fire("RESURRECT_REQUEST", "Alice")
+reset(); revive("player")
+runTimers()
+check("an offer made to my ghost still counts", lastSent(), "ty Alice")
+
 -- My line and the member line are separate, even when the person who rezzed me
 -- was rezzed in the same window: my own entry is kept apart from the name list.
 world.player.dead, world.party1.dead = true, true
@@ -591,6 +671,49 @@ slash("delay 3")
 check("delay all reaches rez", GzLevelUpDB.rezDelay, 3)
 check("delay all reaches my rez", GzLevelUpDB.selfRezDelay, 3)
 
+section("chat lockdown: held back until the fight is over")
+GzLevelUpDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+fire("GROUP_ROSTER_UPDATE")
+
+chatLockdown = true
+reset(); levelUp("party1")
+check("nothing goes out during the lockdown", #sent, 0)
+
+-- Leaving combat while the lockdown still holds changes nothing yet.
+fire("PLAYER_REGEN_ENABLED")
+check("still held while locked", #sent, 0)
+
+chatLockdown = false
+fire("ADDON_RESTRICTION_STATE_CHANGED")
+check("sent once the lockdown ends", lastSent(), "Gz Alice!")
+check("and only once", #sent, 1)
+fire("PLAYER_REGEN_ENABLED")
+check("the queue is empty afterwards", #sent, 1)
+
+-- A long fight drops what has gone stale instead of bursting it all out.
+chatLockdown = true
+reset(); levelUp("party1")
+now = now + 150
+levelUp("party2")
+chatLockdown = false
+fire("PLAYER_REGEN_ENABLED")
+check("only the fresh line survives", #sent, 1)
+check("which is the recent one", lastSent(), "Gz Bob!")
+now = 0
+
+-- The auto reply goes through the same queue.
+GzLevelUpDB.autoReplyEnabled = true
+reset(); levelUp("player")
+fire("CHAT_MSG_PARTY", "gz!", "Alice")
+chatLockdown = true
+runTimers()
+check("the reply waits as well", #sent, 0)
+chatLockdown = false
+fire("PLAYER_REGEN_ENABLED")
+check("and follows after the fight", lastSent(), "ty Alice!")
+GzLevelUpDB.autoReplyEnabled = false
+
 section("quick panel: the button grid")
 fire("PLAYER_ENTERING_WORLD")
 local panel = GzLevelUpQuickPanel
@@ -619,6 +742,13 @@ check("taller", panel:GetHeight(), panelH(2))
 GzLevelUpDB.quickPanelEnabled = true
 reset(); panel.buttons[5]:GetScript("OnClick")()
 check("a button sends its own slot's text", lastSent(), "brb")
+
+-- A click is meant for right now, so the lockdown does not queue it for later.
+chatLockdown = true
+reset(); panel.buttons[5]:GetScript("OnClick")()
+chatLockdown = false
+fire("PLAYER_REGEN_ENABLED")
+check("a click during the lockdown is not sent later", #sent, 0)
 
 -- Shrinking hides the leftovers rather than leaving them floating.
 GzLevelUpDB.quickPanelRows, GzLevelUpDB.quickPanelCols = 1, 2
