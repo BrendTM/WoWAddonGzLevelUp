@@ -56,8 +56,8 @@ Lightweight, fully configurable, and built for **WoW Classic Era** and
   opens the settings, right-click toggles the quick panel.
 - **In-game config window** (`/gz`) — six tabs, live preview, auto-save, and it
   remembers where you dragged it.
-- **Localization** — English by default, German included automatically on
-  German clients.
+- **Localization** — English and German. It follows your game client until you
+  pick a language yourself on the Settings tab.
 - **Tiny footprint** — no dependencies, no background polling.
 
 ---
@@ -94,7 +94,7 @@ The config window (<code>/gz</code>) is split across six tabs:
     </td>
     <td align="center" valign="top" width="50%">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
-      <sub><b>Settings</b> — master switch, raid chat, minimap button and the settings profiles</sub>
+      <sub><b>Settings</b> — master switch, raid chat, minimap button, the settings profiles and the language</sub>
     </td>
   </tr>
 </table>
@@ -286,10 +286,16 @@ so downgrading the addon again finds them intact.
 
 ## Localization
 
-The UI language follows your WoW client language. **English** is the default;
-**German (deDE)** is included and used automatically on German clients. To add a
-language, extend `GzLevelUp/Locale.lua` with a new `if GetLocale() == "xxXX"`
-block.
+The addon speaks **English** and **German**. Out of the box it follows your WoW
+client: German on a German client, English everywhere else.
+
+To choose for yourself, use the **Language** dropdown at the bottom of the
+Settings tab. The choice applies to all your characters and profiles and takes
+effect once the interface has been reloaded — the addon offers to do that right
+away. Your own messages are never translated; they stay as you wrote them.
+
+To add a language, give `GzLevelUp/Locale.lua` another block like the German one
+and list it in `LANGUAGES` at the bottom of that file.
 
 ---
 
