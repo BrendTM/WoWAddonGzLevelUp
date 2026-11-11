@@ -4,8 +4,8 @@
 message to your party or raid chat the moment a group member levels up — so you
 can keep questing, fighting, and looting without breaking your flow.
 
-Lightweight, fully configurable, and built for **WoW Classic Era** and
-**TBC Anniversary** realms — and for the **World of Warcraft: Forever** beta.
+Lightweight, fully configurable, and built for **WoW Classic Era**,
+**TBC Anniversary** and **World of Warcraft: Forever**.
 
 <p align="center">
   <img src="media/logo.png" width="160" alt="GzLevelUp logo">
@@ -123,9 +123,9 @@ Install and auto-update via the
    ```
    World of Warcraft/_anniversary_/Interface/AddOns/GzLevelUp/
    ```
-   On the Forever beta it is `_classic_beta_`:
+   On Forever it is `_forever_`:
    ```
-   World of Warcraft/_classic_beta_/Interface/AddOns/GzLevelUp/
+   World of Warcraft/_forever_/Interface/AddOns/GzLevelUp/
    ```
 3. Restart the game (or enable the addon on the character screen).
 
@@ -315,7 +315,7 @@ and list it in `LANGUAGES` at the bottom of that file.
 │   ├── build_package.py  # stamps the version and builds the zip
 │   └── release_notes.py  # pulls the release body from CHANGELOG.md
 ├── CHANGELOG.md          # per-release notes
-├── media/                # logo assets (not shipped with the addon)
+├── media/                # logo and screenshots (not shipped with the addon)
 ├── CURSEFORGE.md         # CurseForge project description
 ├── LICENSE
 └── README.md
