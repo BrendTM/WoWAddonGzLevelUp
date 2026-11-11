@@ -114,7 +114,10 @@ function print() end -- the addon's chat output is noise during tests
 -- --- Misc globals the addon touches ----------------------------------------
 function tinsert(t, v) table.insert(t, v) end
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
-function StaticPopup_Show() end
+-- Which popup is up, and whether the interface was asked to reload.
+function StaticPopup_Show(name) popupShown = name end
+function StaticPopup_Hide(name) if popupShown == name then popupShown = nil end end
+function ReloadUI() reloads = (reloads or 0) + 1 end
 
 UIParent, StaticPopupDialogs, SlashCmdList, UISpecialFrames = {}, {}, {}, {}
 ACCEPT, CANCEL = "Accept", "Cancel"

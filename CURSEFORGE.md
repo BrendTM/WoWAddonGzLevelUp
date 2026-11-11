@@ -4,8 +4,8 @@
 message to your party or raid chat the moment a group member levels up — so you
 can keep questing, fighting, and looting without breaking your flow.
 
-Lightweight, fully configurable, and built for WoW Classic Era and TBC
-Anniversary realms — and for the World of Warcraft: Forever beta.
+Lightweight, fully configurable, and built for WoW Classic Era, TBC
+Anniversary and World of Warcraft: Forever.
 
 ---
 
@@ -51,8 +51,8 @@ Anniversary realms — and for the World of Warcraft: Forever beta.
   for the settings, right-click for the quick panel.
 - **In-game config window** — set everything up with `/gz`, including a live
   preview of your messages. Everything saves itself.
-- **Localization** — English by default, with German included automatically on
-  German clients.
+- **Localization** — English and German. It follows your game client until you
+  pick a language yourself on the Settings tab.
 - **Tiny footprint** — no dependencies, minimal memory use, no background
   polling.
 
@@ -191,6 +191,10 @@ what the range check notices.
   when you switch and each character can place the panel where it suits.
 - **Restore defaults** — resets the profile you are on, after a confirmation
   prompt.
+- **Language** — English or German. Until you choose, it follows the game
+  client: German on a German client, English everywhere else. The choice
+  applies to all your characters and profiles and takes effect once the
+  interface has been reloaded, which the addon offers to do right away.
 
 Upgrading from an older version needs no action: your existing settings become
 a profile called *Default* on the first login.
@@ -281,9 +285,9 @@ player who resurrected you, not you — that line exists to thank them. Example:
 
 ## Compatibility
 
-Built for the WoW Classic Era (1.15.9) and TBC Anniversary (2.5.6) clients,
-and it runs on the World of Warcraft: Forever beta (1.60.1) too — same
-settings, same profiles, same windows. Messages go to **party** chat;
+Built for the WoW Classic Era (1.15.9), TBC Anniversary (2.5.6) and World of
+Warcraft: Forever (1.60.1) clients — same settings, same profiles, same
+windows. Messages go to **party** chat;
 **raid** chat is opt-in via a setting, because an automatic "gz" per level-up is
 spam for most 40-man raids. Nothing is sent when you're not in a group.
 

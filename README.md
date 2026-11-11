@@ -4,8 +4,8 @@
 message to your party or raid chat the moment a group member levels up — so you
 can keep questing, fighting, and looting without breaking your flow.
 
-Lightweight, fully configurable, and built for **WoW Classic Era** and
-**TBC Anniversary** realms — and for the **World of Warcraft: Forever** beta.
+Lightweight, fully configurable, and built for **WoW Classic Era**,
+**TBC Anniversary** and **World of Warcraft: Forever**.
 
 <p align="center">
   <img src="media/logo.png" width="160" alt="GzLevelUp logo">
@@ -56,8 +56,8 @@ Lightweight, fully configurable, and built for **WoW Classic Era** and
   opens the settings, right-click toggles the quick panel.
 - **In-game config window** (`/gz`) — six tabs, live preview, auto-save, and it
   remembers where you dragged it.
-- **Localization** — English by default, German included automatically on
-  German clients.
+- **Localization** — English and German. It follows your game client until you
+  pick a language yourself on the Settings tab.
 - **Tiny footprint** — no dependencies, no background polling.
 
 ---
@@ -73,28 +73,34 @@ The config window (<code>/gz</code>) is split across six tabs:
       <sub><b>Messages</b> — a switch, a message and a delay per category</sub>
     </td>
     <td align="center" valign="top" width="50%">
-      <img src="media/example_auto_reply_panel.jpg" width="380" alt="Auto reply tab"><br>
-      <sub><b>Auto reply</b> — thank everyone who congratulated you, in one message</sub>
+      <img src="media/example_auto_reply_panel.jpg" width="380" alt="Auto reply tab, Level-up sub-page"><br>
+      <sub><b>Auto reply → Level-up</b> — thank everyone who congratulated you, in one message</sub>
     </td>
   </tr>
   <tr>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_auto_reply_guild_panel.jpg" width="380" alt="Auto reply tab, Guild sub-page"><br>
+      <sub><b>Auto reply → Guild</b> — greet back guild members who come online and say hello</sub>
+    </td>
     <td align="center" valign="top" width="50%">
       <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab, Deaths sub-page"><br>
       <sub><b>Death reply → Deaths</b> — a line per death, plus the collect window and the wipe threshold</sub>
     </td>
+  </tr>
+  <tr>
     <td align="center" valign="top" width="50%">
       <img src="media/example_death_reply_resurrections_panel.jpg" width="380" alt="Death reply tab, Resurrections sub-page"><br>
       <sub><b>Death reply → Resurrections</b> — the same for coming back, with its own collect window and no threshold</sub>
     </td>
-  </tr>
-  <tr>
     <td align="center" valign="top" width="50%">
       <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
       <sub><b>Quick panel</b> — the button grid, its texts, and the panel size</sub>
     </td>
-    <td align="center" valign="top" width="50%">
+  </tr>
+  <tr>
+    <td align="center" valign="top" colspan="2">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
-      <sub><b>Settings</b> — master switch, raid chat, minimap button and the settings profiles</sub>
+      <sub><b>Settings</b> — master switch, raid chat, minimap button, the settings profiles and the language</sub>
     </td>
   </tr>
 </table>
@@ -123,9 +129,9 @@ Install and auto-update via the
    ```
    World of Warcraft/_anniversary_/Interface/AddOns/GzLevelUp/
    ```
-   On the Forever beta it is `_classic_beta_`:
+   On Forever it is `_forever_`:
    ```
-   World of Warcraft/_classic_beta_/Interface/AddOns/GzLevelUp/
+   World of Warcraft/_forever_/Interface/AddOns/GzLevelUp/
    ```
 3. Restart the game (or enable the addon on the character screen).
 
@@ -286,10 +292,16 @@ so downgrading the addon again finds them intact.
 
 ## Localization
 
-The UI language follows your WoW client language. **English** is the default;
-**German (deDE)** is included and used automatically on German clients. To add a
-language, extend `GzLevelUp/Locale.lua` with a new `if GetLocale() == "xxXX"`
-block.
+The addon speaks **English** and **German**. Out of the box it follows your WoW
+client: German on a German client, English everywhere else.
+
+To choose for yourself, use the **Language** dropdown at the bottom of the
+Settings tab. The choice applies to all your characters and profiles and takes
+effect once the interface has been reloaded — the addon offers to do that right
+away. Your own messages are never translated; they stay as you wrote them.
+
+To add a language, give `GzLevelUp/Locale.lua` another block like the German one
+and list it in `LANGUAGES` at the bottom of that file.
 
 ---
 
@@ -309,7 +321,7 @@ block.
 │   ├── build_package.py  # stamps the version and builds the zip
 │   └── release_notes.py  # pulls the release body from CHANGELOG.md
 ├── CHANGELOG.md          # per-release notes
-├── media/                # logo assets (not shipped with the addon)
+├── media/                # logo and screenshots (not shipped with the addon)
 ├── CURSEFORGE.md         # CurseForge project description
 ├── LICENSE
 └── README.md

@@ -1,11 +1,14 @@
 local ADDON, ns = ...
 
--- Localization: English is the default language (fallback for all keys).
--- Other languages only override the keys they actually need.
--- If a key is missing entirely, the metatable returns the key name itself,
--- so there is never a nil error.
-local L = setmetatable({}, { __index = function(_, key) return key end })
-ns.L = L
+-- Localization: English is the complete language and the fallback for every
+-- key. Any other language is a layer on top that only holds the keys it
+-- actually translates. If a key is missing entirely, the lookup returns the
+-- key name itself, so there is never a nil error.
+--
+-- Every language is loaded, whatever the client speaks: which one is used is
+-- a setting, and settings are not there yet while this file runs. The bottom
+-- of the file does the choosing.
+local L = {}
 
 -- ---------------------------------------------------------------------------
 -- enUS (default)
@@ -106,6 +109,12 @@ L.PET                  = "Companion"
 L.PREVIEW_NAME_1       = "Alice"
 L.PREVIEW_NAME_2       = "Bob"
 L.BTN_RESET            = "Restore defaults"
+L.LANGUAGE_LABEL       = "Language"
+L.LANGUAGE_HELP_TITLE  = "Language"
+L.LANGUAGE_HELP        = "The language of this addon's windows and chat output. Until you choose one it follows the game: German on a German client, English everywhere else.\n\nThe choice applies to all your characters and profiles, and takes effect once the interface has been reloaded.\n\nYour messages are not translated - they stay exactly as you wrote them."
+L.LANGUAGE_RELOAD      = "The language changes once the interface has been reloaded. Reload now?"
+L.BTN_RELOAD           = "Reload"
+L.BTN_LATER            = "Later"
 L.RESET_CONFIRM        = "Reset the active profile to its default settings?"
 L.MSG_RESET            = "the active profile was restored to its defaults."
 L.PLAYER               = "Player"
@@ -196,13 +205,14 @@ L.HELP_TEST            = "  /gz test         - show current messages as preview"
 -- ---------------------------------------------------------------------------
 -- deDE (German)
 -- ---------------------------------------------------------------------------
-if GetLocale() == "deDE" then
+local deDE = {}
+do
+    local L = deDE -- so the lines below read the same as the English ones
     -- No DEFAULT_* overrides at all: "Gz", "ty", "F", "Wipe." and the trigger
     -- words are what German players type anyway, so enUS is used as-is. Only
     -- the interface below is translated.
     L.TAB_MESSAGES         = "Nachrichten"
     L.TAB_REPLY            = "Auto-Antwort"
-    L.SUBTAB_REPLY_LEVEL   = "LevelUp"
     L.SUBTAB_REPLY_GUILD   = "Gilde"
     L.TAB_DEATH            = "Todesmeldung"
     L.SUBTAB_DEATH         = "Tode"
@@ -277,6 +287,12 @@ if GetLocale() == "deDE" then
     L.PREVIEW_NAME_1       = "Alice"
     L.PREVIEW_NAME_2       = "Bob"
     L.BTN_RESET            = "Zurücksetzen"
+    L.LANGUAGE_LABEL       = "Sprache"
+    L.LANGUAGE_HELP_TITLE  = "Sprache"
+    L.LANGUAGE_HELP        = "Die Sprache der Fenster und Chatausgaben dieses Addons. Solange du keine wählst, richtet sie sich nach dem Spiel: Deutsch auf einem deutschen Client, sonst Englisch.\n\nDie Wahl gilt für alle deine Charaktere und Profile und greift, sobald die Oberfläche neu geladen wurde.\n\nDeine Nachrichten werden nicht übersetzt - sie bleiben genau so, wie du sie geschrieben hast."
+    L.LANGUAGE_RELOAD      = "Die Sprache wechselt, sobald die Oberfläche neu geladen wurde. Jetzt neu laden?"
+    L.BTN_RELOAD           = "Neu laden"
+    L.BTN_LATER            = "Später"
     L.RESET_CONFIRM        = "Das aktive Profil auf die Standardeinstellungen zurücksetzen?"
     L.MSG_RESET            = "Aktives Profil zurückgesetzt."
     L.PLAYER               = "Spieler"
@@ -362,3 +378,50 @@ if GetLocale() == "deDE" then
     L.HELP_PROFILE         = "  /gz profile [Name | new <Name> | delete <Name>] - Einstellungsprofile (aktuell: %s)"
     L.HELP_TEST            = "  /gz test         - aktuelle Nachrichten als Vorschau anzeigen"
 end
+
+-- ---------------------------------------------------------------------------
+-- Which language is in use
+-- ---------------------------------------------------------------------------
+-- In the order the settings tab offers them. Each name is written in its own
+-- language, so it can be found by someone who cannot read the current one.
+local LANGUAGES = {
+    { code = "enUS", name = "English", strings = {} }, -- nothing to override
+    { code = "deDE", name = "Deutsch", strings = deDE },
+}
+local byCode = {}
+for _, language in ipairs(LANGUAGES) do byCode[language.code] = language end
+ns.LANGUAGES = LANGUAGES
+
+local function Text(strings, key)
+    local text = strings[key]
+    if text == nil then text = L[key] end
+    if text == nil then text = key end
+    return text
+end
+
+-- What a saved choice comes down to. Nothing saved, or a language this version
+-- does not have: follow the client, and English where the client's language
+-- is not one of ours either.
+function ns.ResolveLanguage(choice)
+    if byCode[choice] then return choice end
+    local client = GetLocale()
+    return byCode[client] and client or "enUS"
+end
+
+local active
+function ns.SetLanguage(choice)
+    ns.language = ns.ResolveLanguage(choice)
+    active = byCode[ns.language].strings
+end
+
+-- One string in a language other than the active one: the question whether to
+-- reload should be readable to someone who has just picked their own language.
+function ns.TextIn(code, key)
+    return Text(byCode[ns.ResolveLanguage(code)].strings, key)
+end
+
+-- The client's language for a start, so anything read before the settings
+-- have arrived matches what the addon did before it had a choice. The main
+-- file calls SetLanguage again as soon as it knows better.
+ns.SetLanguage(nil)
+ns.L = setmetatable({}, { __index = function(_, key) return Text(active, key) end })
