@@ -4,6 +4,49 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.5
+
+### New
+
+- **Guild greeting reply** (opt-in). When a guild member comes online and then
+  says hello in guild chat, the addon says hello back — "Hi Alice!". Several
+  arriving together get one message, and nobody is greeted twice in a row.
+  - Only a login counts, and only the first thing that person writes after it.
+    If that is not a greeting, or if you write in guild chat yourself in the
+    meantime, the addon stays quiet.
+  - The reply, the words that count as a greeting, how long after the login a
+    greeting counts (120 s), how long to collect (6 s) and the pause before the
+    same person is greeted again (30 min) are all yours to set.
+  - It relies on the game announcing guild members who come online. If that
+    alert is switched off, the page says so and offers to switch it on.
+  - On Forever a checkbox decides between "Hi Nuiti!" and "Hi Nuiti
+    Steinschild!".
+  - `/gz guild` toggles it, `/gz guildmsg <text>` sets the reply.
+- **The Auto reply tab has two sub-pages now**, *Level-up* and *Guild*. What
+  used to be on the tab is under *Level-up*, unchanged.
+- **Choose the language.** A dropdown at the bottom of the Settings tab switches
+  between English and German. Until you pick one, nothing changes: German on a
+  German client, English everywhere else. The choice applies to all your
+  characters and profiles and takes effect after a reload, which the addon
+  offers to do for you.
+- **The minimap button is on by default** — for new installs. If you already
+  use the addon, it stays the way you have it; *Restore defaults* now brings
+  the button up.
+
+### Fixed
+
+- **No more "gz" when somebody joins the group.** A new member's level can
+  arrive a moment after they do, and that looked like a level-up. A level that
+  changes in the first ten seconds after joining is now only taken note of.
+- **Fewer "wb" after a wipe, again.** The addon looked once whether a dead
+  member had released, and a release the game reported late was then mistaken
+  for a resurrection when they came back through the portal. It now keeps
+  looking until it knows.
+- **The profile dropdown follows `/gz profile new` and `/gz profile delete`.**
+  With the settings window open, it kept naming the profile from before.
+- Forever installs go into `World of Warcraft/_forever_/Interface/AddOns/` now
+  that Forever has its own folder.
+
 ## 1.4.2
 
 ### Fixed
