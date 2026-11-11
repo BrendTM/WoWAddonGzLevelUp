@@ -53,6 +53,15 @@ local defaults = {
     replyTriggers     = L.DEFAULT_TRIGGERS,  -- comma separated words
     replyCollect      = 6,                   -- keep collecting after the 1st gz
     replyWindow       = 30,                  -- give up listening after this
+    -- Guild greeting reply: greet back a guild member who has just come online
+    -- and says hello in guild chat. Opt-in like every other reply.
+    guildReplyEnabled  = false,
+    guildReplyMessage  = L.DEFAULT_GUILD_REPLY,
+    guildReplyTriggers = L.DEFAULT_GUILD_TRIGGERS, -- comma separated words
+    guildReplyWindow   = 120,                -- a greeting counts this long after the login
+    guildReplyCollect  = 6,                  -- keep collecting after the 1st greeting
+    guildReplyCooldown = 30,                 -- minutes before the same person is greeted again
+    guildReplyFullName = false,              -- Forever: first and last name in the reply
     -- quickPanelPos / configPos are saved when a window is moved
     -- (deliberately not in defaults: "no entry" means "centered").
 }
@@ -116,6 +125,19 @@ local function ClampDelay(n)
     if n < 0 then n = 0 end
     if n > MAX_DELAY then n = MAX_DELAY end
     return n
+end
+
+-- The guild reply thinks in longer spans than a chat delay: somebody who has
+-- just logged in needs a moment before they say hello, and the pause before
+-- the same person is greeted again is counted in minutes.
+local MAX_GUILD_WINDOW   = 600 -- seconds
+local MAX_GUILD_COOLDOWN = 999 -- minutes; what three digits can hold
+
+local function ClampTo(n, max)
+    n = tonumber(n) or 0
+    if n < 0 then n = 0 end
+    if n > max then n = max end
+    return math.floor(n)
 end
 
 -- Head count, e.g. "how many deaths at once count as a wipe". 0 = never.
@@ -565,13 +587,17 @@ local function FlushLockdownQueue()
     local queue = lockdownQueue
     lockdownQueue = {}
     for _, entry in ipairs(queue) do
-        if not GetTime or GetTime() - entry.at <= LOCKDOWN_MAX_AGE then SendNow(entry.msg) end
+        if not GetTime or GetTime() - entry.at <= LOCKDOWN_MAX_AGE then
+            SendNow(entry.msg, entry.toGuild)
+        end
     end
     if #lockdownQueue == 0 and lockdownFrame then lockdownFrame:UnregisterAllEvents() end
 end
 
-local function QueueForLockdown(msg)
-    lockdownQueue[#lockdownQueue + 1] = { msg = msg, at = GetTime and GetTime() or 0 }
+local function QueueForLockdown(msg, toGuild)
+    lockdownQueue[#lockdownQueue + 1] = {
+        msg = msg, toGuild = toGuild, at = GetTime and GetTime() or 0,
+    }
     if not lockdownFrame then
         lockdownFrame = CreateFrame("Frame")
         lockdownFrame:SetScript("OnEvent", FlushLockdownQueue)
@@ -580,15 +606,20 @@ local function QueueForLockdown(msg)
     lockdownFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 end
 
--- Sends the (already formatted) message to party/raid chat.
--- Channel and conditions are only checked at the actual moment of sending,
--- since the group may have changed during a delay.
-function SendNow(msg)
+-- Sends the (already formatted) message to party/raid chat, or to guild chat
+-- when `toGuild` is set. Channel and conditions are only checked at the actual
+-- moment of sending, since the group may have changed during a delay.
+function SendNow(msg, toGuild)
     if not GzLevelUpDB.enabled then return end
-    local channel = GroupChannel()
+    local channel
+    if toGuild then
+        channel = IsInGuild and IsInGuild() and "GUILD" or nil
+    else
+        channel = GroupChannel()
+    end
     if not channel then return end
     if InChatLockdown() then
-        QueueForLockdown(msg)
+        QueueForLockdown(msg, toGuild)
         return
     end
     SendChatMessage(msg, channel)
@@ -858,10 +889,10 @@ local REPLY_EVENTS = {
     CHAT_MSG_RAID_LEADER  = "RAID",
 }
 
--- Splits the configured trigger list into lowercase words.
-local function TriggerWords()
+-- Splits a configured trigger list into lowercase words.
+local function TriggerWords(list)
     local words = {}
-    for raw in (GzLevelUpDB.replyTriggers or ""):gmatch("[^,]+") do
+    for raw in (list or ""):gmatch("[^,]+") do
         local word = raw:match("^%s*(.-)%s*$"):lower()
         if word ~= "" then words[#words + 1] = word end
     end
@@ -874,7 +905,7 @@ local function IsCongratulation(text)
     if not text or text == "" then return false end
     -- Punctuation becomes whitespace so that word starts are easy to find.
     local padded = " " .. text:lower():gsub("[%p%s]+", " ") .. " "
-    for _, word in ipairs(TriggerWords()) do
+    for _, word in ipairs(TriggerWords(GzLevelUpDB.replyTriggers)) do
         if padded:find(" " .. word, 1, true) then return true end
     end
     return false
@@ -935,6 +966,190 @@ local function OnGroupChat(event, text, sender)
         local session = reply.session
         C_Timer.After(ClampDelay(GzLevelUpDB.replyCollect), function() SendReply(session) end)
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Guild greeting reply: say hello back to a guild member who has just come
+-- online and greets the guild
+-- ---------------------------------------------------------------------------
+-- Two things have to come together: the game reports that somebody came
+-- online, and that same person then says hello in guild chat. A "moin" from
+-- somebody who has been around all evening is them answering, not arriving,
+-- and gets no reply.
+
+-- Forever characters carry a surname, see ShortName. The client tells its
+-- project apart by number; 18 is Forever (Classic Era is 2, TBC is 5).
+local function IsForever()
+    return WOW_PROJECT_ID == 18
+end
+
+-- online:  key -> GetTime() of a login nobody has reacted to yet
+-- greeted: key -> GetTime() of the last greeting of theirs that was answered
+local guildReply = {
+    session = 0, pending = false, names = {}, seen = {},
+    online = {}, greeted = {},
+}
+
+-- What the two events are matched by. On Forever that is the full name, exactly
+-- as both of them deliver it ("Nuiti Steinschild") — first names alone repeat
+-- far too often in a guild. Elsewhere a realm suffix is dropped, since chat
+-- appends one where the online message may not.
+local function GuildKey(name)
+    if not name or name == "" then return nil end
+    if IsForever() then return name end
+    return name:match("^([^%-]+)") or name
+end
+
+-- The game's own "%s has come online" line, turned into a pattern. Built from
+-- the client's string, so it follows whatever language the client runs in.
+local onlinePattern
+
+local function OnlineName(text)
+    if onlinePattern == nil then
+        local fmt = ERR_FRIEND_ONLINE_SS
+        if type(fmt) ~= "string" then
+            onlinePattern = false
+        else
+            local pattern = fmt:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+            -- Both placeholders are the same name, so their order is irrelevant.
+            pattern = pattern:gsub("%%%%%d%%%$s", "(.-)"):gsub("%%%%s", "(.-)")
+            onlinePattern = "^" .. pattern .. "$"
+        end
+    end
+    if not onlinePattern then return nil end
+
+    local link, shown = text:match(onlinePattern)
+    -- The link target may carry more than the name after a colon.
+    local name = link and link:match("^([^:]+)")
+    if not name or name == "" then name = shown end
+    if not name or name == "" then return nil end
+    return name
+end
+
+-- True if the message contains one of the greetings as a word of its own.
+-- Stricter than IsCongratulation on purpose: "hi" must not fire on "hilfe".
+-- Drawing out the last letter is still the same word, so "moinnn" counts.
+local function IsGreeting(text)
+    if not text or text == "" then return false end
+    local padded = " " .. text:lower():gsub("[%p%s]+", " ") .. " "
+    for _, word in ipairs(TriggerWords(GzLevelUpDB.guildReplyTriggers)) do
+        local last, from = word:sub(-1), 1
+        while true do
+            local s, e = padded:find(" " .. word, from, true)
+            if not s then break end
+            local i = e + 1
+            while padded:sub(i, i) == last do i = i + 1 end
+            if padded:sub(i, i) == " " then return true end
+            from = s + 1
+        end
+    end
+    return false
+end
+
+-- Was that guild chat line mine? The sender's GUID settles it wherever the
+-- client hands one over; the name is the fallback.
+local function IsMe(sender, guid)
+    if guid and not (issecretvalue and issecretvalue(guid)) then
+        return guid == UnitGUID("player")
+    end
+    local first, last = UnitName("player")
+    if IsForever() and last and last ~= "" then
+        return sender == first .. " " .. last
+    end
+    return ShortName(sender) == ShortName(first)
+end
+
+local function CancelGuildReply()
+    guildReply.session = guildReply.session + 1
+    guildReply.pending = false
+    guildReply.names, guildReply.seen = {}, {}
+end
+
+local function SendGuildReply(session)
+    if guildReply.session ~= session then return end
+    guildReply.pending = false
+    local names = guildReply.names
+    guildReply.names, guildReply.seen = {}, {}
+    if #names == 0 then return end
+    if not GzLevelUpDB.enabled or not GzLevelUpDB.guildReplyEnabled then return end
+    SendNow(FormatReply(GzLevelUpDB.guildReplyMessage, names), true)
+end
+
+-- A system message: remember who came online, and when.
+local function OnSystemMessage(text)
+    if not GzLevelUpDB.enabled or not GzLevelUpDB.guildReplyEnabled then return end
+    if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return end
+    local key = GuildKey(OnlineName(text))
+    if not key then return end
+
+    -- Whoever logged in and never said a word must not pile up forever.
+    local now = GetTime and GetTime() or 0
+    local window = ClampTo(GzLevelUpDB.guildReplyWindow, MAX_GUILD_WINDOW)
+    for other, at in pairs(guildReply.online) do
+        if now - at > window then guildReply.online[other] = nil end
+    end
+    local cooldown = ClampTo(GzLevelUpDB.guildReplyCooldown, MAX_GUILD_COOLDOWN) * 60
+    for other, at in pairs(guildReply.greeted) do
+        if now - at > cooldown then guildReply.greeted[other] = nil end
+    end
+
+    guildReply.online[key] = now
+end
+
+local function OnGuildChat(text, sender, guid)
+    if not GzLevelUpDB.enabled or not GzLevelUpDB.guildReplyEnabled then return end
+    if issecretvalue and (issecretvalue(text) or issecretvalue(sender)) then return end
+    if type(sender) ~= "string" or sender == "" then return end
+
+    -- Once I write in guild chat myself, everybody who is waiting has either
+    -- been greeted by me or I had my reasons. The addon steps back.
+    if IsMe(sender, guid) then
+        guildReply.online = {}
+        CancelGuildReply()
+        return
+    end
+
+    local key = GuildKey(sender)
+    local at = key and guildReply.online[key]
+    if not at then return end
+    -- Their first line after the login decides, whatever it says. A "moin"
+    -- that follows later is meant for the next one who comes online.
+    guildReply.online[key] = nil
+
+    local now = GetTime and GetTime() or 0
+    if now - at > ClampTo(GzLevelUpDB.guildReplyWindow, MAX_GUILD_WINDOW) then return end
+    if not IsGreeting(text) then return end
+
+    -- Hopping out and back in is not worth a second hello.
+    local last = guildReply.greeted[key]
+    local cooldown = ClampTo(GzLevelUpDB.guildReplyCooldown, MAX_GUILD_COOLDOWN) * 60
+    if last and now - last < cooldown then return end
+    guildReply.greeted[key] = now
+
+    if not guildReply.seen[key] then
+        guildReply.seen[key] = true
+        local full = IsForever() and GzLevelUpDB.guildReplyFullName
+        guildReply.names[#guildReply.names + 1] = full and sender or ShortName(sender)
+    end
+
+    -- The first greeting starts the collection timer; whoever else arrives
+    -- in the meantime joins the same reply.
+    if not guildReply.pending then
+        guildReply.pending = true
+        guildReply.session = guildReply.session + 1
+        local session = guildReply.session
+        C_Timer.After(ClampDelay(GzLevelUpDB.guildReplyCollect), function() SendGuildReply(session) end)
+    end
+end
+
+-- The game only reports guild members coming online while its own alert for
+-- that is switched on. nil when the client has no such setting to read.
+local function GuildNotifyOff()
+    local get = (C_CVar and C_CVar.GetCVar) or GetCVar
+    if not get then return nil end
+    local value = get("guildMemberNotify")
+    if value == nil then return nil end
+    return value == "0"
 end
 
 local function OnUnitLevel(unit)
@@ -1332,7 +1547,10 @@ if CombatLogGetCurrentEventInfo then pcall(f.RegisterEvent, f, "COMBAT_LOG_EVENT
 -- The last chance to copy the live settings into the active profile.
 f:RegisterEvent("PLAYER_LOGOUT")
 for event in pairs(REPLY_EVENTS) do f:RegisterEvent(event) end
-f:SetScript("OnEvent", function(self, event, arg1, arg2)
+-- Guild greeting reply: who came online, and what they then say.
+f:RegisterEvent("CHAT_MSG_SYSTEM")
+f:RegisterEvent("CHAT_MSG_GUILD")
+f:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
     -- First, since it fires far more often than everything else together.
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         OnCombatLog()
@@ -1345,6 +1563,10 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2)
         StoreActive()
     elseif REPLY_EVENTS[event] then
         OnGroupChat(event, arg1, arg2) -- arg1 = text, arg2 = sender
+    elseif event == "CHAT_MSG_GUILD" then
+        OnGuildChat(arg1, arg2, (select(10, ...))) -- the 12th argument is the sender's GUID
+    elseif event == "CHAT_MSG_SYSTEM" then
+        OnSystemMessage(arg1)
     elseif event == "UNIT_LEVEL" then
         OnUnitLevel(arg1)
     elseif event == "UNIT_HEALTH" then
@@ -1378,9 +1600,9 @@ local configFrame
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 
 -- Small helper: labeled checkbox. The label is exposed as cb.label so callers
--- can anchor to it and grey it out.
-local function CreateCheck(parent, label)
-    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+-- can anchor to it and grey it out. `name` is optional and makes it a global.
+local function CreateCheck(parent, label, name)
+    local cb = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
     cb:SetSize(26, 26)
     local fs = cb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
@@ -1663,46 +1885,43 @@ local function BuildConfig()
         blocks[i] = block
     end
 
-    -- === Tab 2: auto reply ================================================
-    local replyCB = CreateCheck(replyPage, L.OPT_AUTOREPLY)
-    replyCB:SetPoint("TOPLEFT", 26, 0)
+    -- A page split into sub-pages, with a row of small tabs on its header
+    -- line. Returns the containers in the order of the labels. Each of them
+    -- covers the page from `top` downwards and only the selected one is shown,
+    -- so all of them can use the same offsets.
+    local function CreateSubPages(page, labels, top)
+        local subs, subTabs = {}, {}
+        for i, label in ipairs(labels) do
+            local p = CreateFrame("Frame", nil, page)
+            p:SetPoint("TOPLEFT", page, "TOPLEFT", 0, top or 0)
+            p:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+            subs[i] = p
 
-    local replyHelp = CreateHelpIcon(replyPage, L.REPLY_HELP_TITLE, L.REPLY_HELP)
-    replyHelp:SetPoint("TOPRIGHT", -24, 2)
+            local t = CreateTab(page, label)
+            if i == 1 then
+                t:SetPoint("TOPLEFT", 26, 6)
+            else
+                t:SetPoint("LEFT", subTabs[i - 1], "RIGHT", 6, 0)
+            end
+            subTabs[i] = t
+        end
 
-    local replyMsgLabel = replyPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    replyMsgLabel:SetPoint("TOPLEFT", 36, -36)
-    replyMsgLabel:SetText(L.REPLY_MESSAGE_LABEL)
+        local function Select(index)
+            for i, t in ipairs(subTabs) do
+                SetTabActive(t, i == index)
+                if i == index then subs[i]:Show() else subs[i]:Hide() end
+            end
+        end
+        for i, t in ipairs(subTabs) do
+            t:SetScript("OnClick", function() Select(i) end)
+        end
+        Select(1)
+        return subs
+    end
 
-    local replyEdit = CreateFrame("EditBox", nil, replyPage, "InputBoxTemplate")
-    replyEdit:SetHeight(26)
-    replyEdit:SetPoint("TOPLEFT", 36, -56)
-    replyEdit:SetPoint("TOPRIGHT", -32, -56)
-    replyEdit:SetAutoFocus(false)
-    replyEdit:SetMaxLetters(240)
-
-    local replyPreview = replyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    replyPreview:SetPoint("TOPLEFT", 38, -87)
-    replyPreview:SetPoint("TOPRIGHT", -34, -87)
-    replyPreview:SetJustifyH("LEFT")
-
-    local triggerLabel = replyPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    triggerLabel:SetPoint("TOPLEFT", 36, -114)
-    triggerLabel:SetText(L.REPLY_TRIGGERS_LABEL)
-
-    local triggerEdit = CreateFrame("EditBox", nil, replyPage, "InputBoxTemplate")
-    triggerEdit:SetHeight(26)
-    triggerEdit:SetPoint("TOPLEFT", 36, -134)
-    triggerEdit:SetPoint("TOPRIGHT", -32, -134)
-    triggerEdit:SetAutoFocus(false)
-    triggerEdit:SetMaxLetters(240)
-
-    local collectRow = CreateSecondsRow(replyPage, -172, L.REPLY_COLLECT_LABEL)
-    local windowRow  = CreateSecondsRow(replyPage, -200, L.REPLY_WINDOW_LABEL)
-
-    -- Greys out the whole tab while auto reply is off.
-    local function SetReplyEnabled(on)
-        for _, e in ipairs({ replyEdit, triggerEdit, collectRow.edit, windowRow.edit }) do
+    -- Greys out the fields of a reply while it is switched off.
+    local function SetFieldsEnabled(on, edits, labels, preview)
+        for _, e in ipairs(edits) do
             e:EnableMouse(on)
             if on then
                 e:SetTextColor(1, 1, 1)
@@ -1713,19 +1932,163 @@ local function BuildConfig()
         end
         local r, g, b = 1, 0.82, 0
         if not on then r, g, b = 0.5, 0.5, 0.5 end
-        for _, fs in ipairs({ replyMsgLabel, triggerLabel, collectRow.label, windowRow.label }) do
+        for _, fs in ipairs(labels) do
             fs:SetTextColor(r, g, b)
         end
         if on then
-            replyPreview:SetTextColor(1, 1, 1)
+            preview:SetTextColor(1, 1, 1)
         else
-            replyPreview:SetTextColor(0.5, 0.5, 0.5)
+            preview:SetTextColor(0.5, 0.5, 0.5)
         end
+    end
+
+    -- A message field with its label above and the live preview below, the
+    -- way both replies show theirs.
+    local function CreateMessageField(parent, y, labelText, withPreview)
+        local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", 36, y)
+        label:SetText(labelText)
+
+        local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+        edit:SetHeight(26)
+        edit:SetPoint("TOPLEFT", 36, y - 20)
+        edit:SetPoint("TOPRIGHT", -32, y - 20)
+        edit:SetAutoFocus(false)
+        edit:SetMaxLetters(240)
+
+        local preview
+        if withPreview then
+            preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            preview:SetPoint("TOPLEFT", 38, y - 51)
+            preview:SetPoint("TOPRIGHT", -34, y - 51)
+            preview:SetJustifyH("LEFT")
+        end
+        return label, edit, preview
+    end
+
+    -- === Tab 2: auto reply ================================================
+    -- Two replies live here, each on a sub-page of its own: thanking for a
+    -- "gz" after my level-up, and greeting back in guild chat. The sub-tab row
+    -- takes the header line, so the pages start one row further down.
+    local replySubs = CreateSubPages(replyPage,
+        { L.SUBTAB_REPLY_LEVEL, L.SUBTAB_REPLY_GUILD }, -26)
+    local levelSub, guildSub = replySubs[1], replySubs[2]
+
+    -- --- Sub-page: after my level-up ----------------------------------------
+    local replyCB = CreateCheck(levelSub, L.OPT_AUTOREPLY)
+    replyCB:SetPoint("TOPLEFT", 26, 0)
+
+    -- The help icons sit on the header line next to the sub-tabs, one per
+    -- sub-page, so each shows only while its page does.
+    local replyHelp = CreateHelpIcon(levelSub, L.REPLY_HELP_TITLE, L.REPLY_HELP)
+    replyHelp:SetPoint("TOPRIGHT", replyPage, "TOPRIGHT", -24, 2)
+
+    local replyMsgLabel, replyEdit, replyPreview =
+        CreateMessageField(levelSub, -36, L.REPLY_MESSAGE_LABEL, true)
+    local triggerLabel, triggerEdit =
+        CreateMessageField(levelSub, -114, L.REPLY_TRIGGERS_LABEL)
+
+    local collectRow = CreateSecondsRow(levelSub, -172, L.REPLY_COLLECT_LABEL)
+    local windowRow  = CreateSecondsRow(levelSub, -200, L.REPLY_WINDOW_LABEL)
+
+    local function SetReplyEnabled(on)
+        SetFieldsEnabled(on,
+            { replyEdit, triggerEdit, collectRow.edit, windowRow.edit },
+            { replyMsgLabel, triggerLabel, collectRow.label, windowRow.label },
+            replyPreview)
     end
 
     replyCB:SetScript("OnClick", function(self)
         GzLevelUpDB.autoReplyEnabled = self:GetChecked() and true or false
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
+    end)
+
+    -- --- Sub-page: guild greeting -------------------------------------------
+    -- Laid out like its neighbour, so switching between the two does not make
+    -- anything jump.
+    local guildCB = CreateCheck(guildSub, L.OPT_GUILDREPLY, "GzLevelUpGuildReplyCheck")
+    guildCB:SetPoint("TOPLEFT", 26, 0)
+
+    local guildHelp = CreateHelpIcon(guildSub, L.GUILD_HELP_TITLE, L.GUILD_HELP)
+    guildHelp:SetPoint("TOPRIGHT", replyPage, "TOPRIGHT", -24, 2)
+
+    local guildMsgLabel, guildEdit, guildPreview =
+        CreateMessageField(guildSub, -36, L.REPLY_MESSAGE_LABEL, true)
+    local guildTrigLabel, guildTrigEdit =
+        CreateMessageField(guildSub, -114, L.GUILD_TRIGGERS_LABEL)
+
+    local guildWindowRow   = CreateSecondsRow(guildSub, -172, L.GUILD_WINDOW_LABEL)
+    local guildCollectRow  = CreateSecondsRow(guildSub, -200, L.GUILD_COLLECT_LABEL)
+    local guildCooldownRow = CreateSecondsRow(guildSub, -228, L.GUILD_COOLDOWN_LABEL, L.GUILD_MINUTES)
+    -- Both of these run into three digits.
+    guildWindowRow.edit:SetMaxLetters(3)
+    guildCooldownRow.edit:SetMaxLetters(3)
+
+    -- Only Forever characters have a surname to choose about.
+    local guildFullCB
+    if IsForever() then
+        guildFullCB = CreateCheck(guildSub, L.OPT_GUILD_FULLNAME, "GzLevelUpGuildFullNameCheck")
+        guildFullCB:SetPoint("TOPLEFT", 26, -246)
+        guildFullCB:SetScript("OnClick", function(self)
+            GzLevelUpDB.guildReplyFullName = self:GetChecked() and true or false
+        end)
+    end
+
+    -- Without the game's own alert no login is ever reported, and the reply
+    -- would silently never fire. Say so, and offer to switch the alert on -
+    -- on a click only, the addon never changes a game setting by itself.
+    local warnY = guildFullCB and -278 or -256
+    local guildWarn = guildSub:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    guildWarn:SetPoint("TOPLEFT", 38, warnY)
+    guildWarn:SetPoint("TOPRIGHT", -140, warnY)
+    guildWarn:SetJustifyH("LEFT")
+    guildWarn:SetTextColor(1, 0.3, 0.3)
+    guildWarn:SetText(L.GUILD_NOTIFY_OFF)
+
+    local guildWarnBtn = CreateFrame("Button", "GzLevelUpGuildNotifyButton", guildSub,
+        "UIPanelButtonTemplate")
+    guildWarnBtn:SetSize(100, 22)
+    guildWarnBtn:SetPoint("TOPRIGHT", -32, warnY + 2)
+    guildWarnBtn:SetText(L.BTN_GUILD_NOTIFY)
+
+    -- Shown only while it matters: the reply is on and the alert is off.
+    local function UpdateGuildWarning()
+        if GzLevelUpDB.guildReplyEnabled and GuildNotifyOff() then
+            guildWarn:Show()
+            guildWarnBtn:Show()
+        else
+            guildWarn:Hide()
+            guildWarnBtn:Hide()
+        end
+    end
+
+    guildWarnBtn:SetScript("OnClick", function()
+        local set = (C_CVar and C_CVar.SetCVar) or SetCVar
+        if set then set("guildMemberNotify", "1") end
+        UpdateGuildWarning()
+    end)
+
+    local function SetGuildEnabled(on)
+        SetFieldsEnabled(on,
+            { guildEdit, guildTrigEdit, guildWindowRow.edit, guildCollectRow.edit,
+              guildCooldownRow.edit },
+            { guildMsgLabel, guildTrigLabel, guildWindowRow.label, guildCollectRow.label,
+              guildCooldownRow.label },
+            guildPreview)
+        if guildFullCB then
+            guildFullCB:EnableMouse(on)
+            if on then
+                guildFullCB.label:SetTextColor(1, 0.82, 0)
+            else
+                guildFullCB.label:SetTextColor(0.5, 0.5, 0.5)
+            end
+        end
+        UpdateGuildWarning()
+    end
+
+    guildCB:SetScript("OnClick", function(self)
+        GzLevelUpDB.guildReplyEnabled = self:GetChecked() and true or false
+        SetGuildEnabled(GzLevelUpDB.guildReplyEnabled)
     end)
 
     -- === Tab 3: death reply ===============================================
@@ -1742,38 +2105,10 @@ local function BuildConfig()
     local deathHelp = CreateHelpIcon(deathPage, L.DEATH_HELP_TITLE, L.DEATH_HELP)
     deathHelp:SetPoint("TOPRIGHT", -24, 2)
 
-    -- One container per sub-page, both covering the whole tab: only the
-    -- selected one is shown, so both can use the same offsets.
-    local function CreateSubPage()
-        local p = CreateFrame("Frame", nil, deathPage)
-        p:SetAllPoints(deathPage)
-        return p
-    end
-    local deathSub, rezSub = CreateSubPage(), CreateSubPage()
-
     -- The sub-tab row shares the header line with the delay column on the
     -- right, which is what keeps the window the height it has always been.
-    local deathSubTabs = {}
-    for i, label in ipairs({ L.SUBTAB_DEATH, L.SUBTAB_REZ }) do
-        local t = CreateTab(deathPage, label)
-        if i == 1 then
-            t:SetPoint("TOPLEFT", 26, 6)
-        else
-            t:SetPoint("LEFT", deathSubTabs[i - 1], "RIGHT", 6, 0)
-        end
-        deathSubTabs[i] = t
-    end
-
-    local function SelectDeathSub(index)
-        for i, t in ipairs(deathSubTabs) do SetTabActive(t, i == index) end
-        if index == 1 then deathSub:Show() else deathSub:Hide() end
-        if index == 2 then rezSub:Show()   else rezSub:Hide()   end
-    end
-
-    for i, t in ipairs(deathSubTabs) do
-        t:SetScript("OnClick", function() SelectDeathSub(i) end)
-    end
-    SelectDeathSub(1)
+    local deathSubs = CreateSubPages(deathPage, { L.SUBTAB_DEATH, L.SUBTAB_REZ })
+    local deathSub, rezSub = deathSubs[1], deathSubs[2]
 
     -- A thin line between the blocks of a sub-page and its settings rows.
     local function CreateSubSep(page, y)
@@ -2125,6 +2460,9 @@ local function BuildConfig()
         local sample = { L.PREVIEW_NAME_1, L.PREVIEW_NAME_2 }
         replyPreview:SetText(L.PREVIEW_LABEL .. " \""
             .. FormatReply(replyEdit:GetText(), sample) .. "\"")
+        -- Same for the guild: two members came online and said hello.
+        guildPreview:SetText(L.PREVIEW_LABEL .. " \""
+            .. FormatReply(guildEdit:GetText(), sample) .. "\"")
 
         -- Death preview: two names for the group and the wipe line, so {names}
         -- and {count} actually show what they do. My own death is about me, and
@@ -2162,6 +2500,11 @@ local function BuildConfig()
         GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
         GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
         GzLevelUpDB.replyWindow     = ClampDelay(windowRow.edit:GetText())
+        GzLevelUpDB.guildReplyMessage  = guildEdit:GetText()
+        GzLevelUpDB.guildReplyTriggers = guildTrigEdit:GetText()
+        GzLevelUpDB.guildReplyWindow   = ClampTo(guildWindowRow.edit:GetText(), MAX_GUILD_WINDOW)
+        GzLevelUpDB.guildReplyCollect  = ClampDelay(guildCollectRow.edit:GetText())
+        GzLevelUpDB.guildReplyCooldown = ClampTo(guildCooldownRow.edit:GetText(), MAX_GUILD_COOLDOWN)
         for i, e in ipairs(quickEdits) do
             if e:IsShown() then LiveButtonText(i, e:GetText()) end
         end
@@ -2188,8 +2531,9 @@ local function BuildConfig()
     for _, block in ipairs(deathBlocks) do WireBlock(block, block.cat)            end
 
     replyEdit:SetScript("OnTextChanged", UpdatePreview)
+    guildEdit:SetScript("OnTextChanged", UpdatePreview)
 
-    local focusEdits = { replyEdit, triggerEdit }
+    local focusEdits = { replyEdit, triggerEdit, guildEdit, guildTrigEdit }
     for _, e in ipairs(quickEdits) do focusEdits[#focusEdits + 1] = e end
     for _, e in ipairs(focusEdits) do
         e:SetScript("OnEditFocusLost", Commit)
@@ -2202,6 +2546,9 @@ local function BuildConfig()
     for _, row in ipairs({
         { collectRow,      "replyCollect" },
         { windowRow,       "replyWindow" },
+        { guildWindowRow,   "guildReplyWindow" },
+        { guildCollectRow,  "guildReplyCollect" },
+        { guildCooldownRow, "guildReplyCooldown" },
         { collectDeathRow, "deathCollect" },
         { wipeLimitRow,    "deathWipeLimit" },
         { collectRezRow,   "rezCollect" },
@@ -2259,6 +2606,20 @@ local function BuildConfig()
         windowRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.replyWindow)))
         windowRow.edit:SetCursorPosition(0)
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
+
+        guildCB:SetChecked(GzLevelUpDB.guildReplyEnabled)
+        guildEdit:SetText(GzLevelUpDB.guildReplyMessage)
+        guildEdit:SetCursorPosition(0)
+        guildTrigEdit:SetText(GzLevelUpDB.guildReplyTriggers)
+        guildTrigEdit:SetCursorPosition(0)
+        guildWindowRow.edit:SetText(tostring(ClampTo(GzLevelUpDB.guildReplyWindow, MAX_GUILD_WINDOW)))
+        guildWindowRow.edit:SetCursorPosition(0)
+        guildCollectRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.guildReplyCollect)))
+        guildCollectRow.edit:SetCursorPosition(0)
+        guildCooldownRow.edit:SetText(tostring(ClampTo(GzLevelUpDB.guildReplyCooldown, MAX_GUILD_COOLDOWN)))
+        guildCooldownRow.edit:SetCursorPosition(0)
+        if guildFullCB then guildFullCB:SetChecked(GzLevelUpDB.guildReplyFullName) end
+        SetGuildEnabled(GzLevelUpDB.guildReplyEnabled)
 
         quickCB:SetChecked(GzLevelUpDB.quickPanelEnabled)
         rowsSlider:SetValue(ClampGrid(GzLevelUpDB.quickPanelRows))
@@ -2485,6 +2846,19 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "reply" then
         GzLevelUpDB.autoReplyEnabled = not GzLevelUpDB.autoReplyEnabled
         print(PREFIX .. L.AUTOREPLY_SET:format(tostring(GzLevelUpDB.autoReplyEnabled)))
+    elseif cmd == "guild" then
+        GzLevelUpDB.guildReplyEnabled = not GzLevelUpDB.guildReplyEnabled
+        print(PREFIX .. L.GUILD_REPLY_SET:format(tostring(GzLevelUpDB.guildReplyEnabled)))
+        if GzLevelUpDB.guildReplyEnabled and GuildNotifyOff() then
+            print(PREFIX .. L.GUILD_NOTIFY_OFF)
+        end
+    elseif cmd == "guildmsg" then
+        if rest ~= "" then
+            GzLevelUpDB.guildReplyMessage = rest
+            print(PREFIX .. L.DEATH_MESSAGE_SET:format(cmd, rest))
+        else
+            print(PREFIX .. L.DEATH_MESSAGE_CURRENT:format(cmd, GzLevelUpDB.guildReplyMessage))
+        end
     elseif cmd == "raid" then
         GzLevelUpDB.useRaidChat = not GzLevelUpDB.useRaidChat
         print(PREFIX .. L.USE_RAID_SET:format(tostring(GzLevelUpDB.useRaidChat)))
@@ -2667,6 +3041,8 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_MINIMAP:format(tostring(GzLevelUpDB.minimapEnabled)))
         print(L.HELP_SCALE)
         print(L.HELP_REPLY:format(tostring(GzLevelUpDB.autoReplyEnabled)))
+        print(L.HELP_GUILD:format(tostring(GzLevelUpDB.guildReplyEnabled)))
+        print(L.HELP_GUILDMSG)
         print(L.HELP_DEATH:format(tostring(GzLevelUpDB.announceDeaths)))
         print(L.HELP_SELFDEATH:format(tostring(GzLevelUpDB.announceSelfDeath)))
         print(L.HELP_WIPE:format(tostring(GzLevelUpDB.announceWipe)))

@@ -89,6 +89,20 @@ function GetTime()     return now end
 -- --- Chat ------------------------------------------------------------------
 function SendChatMessage(msg, chan) sent[#sent + 1] = { msg = msg, chan = chan } end
 
+-- Guild chat. Tests leave the guild by clearing the flag.
+inGuild = true
+function IsInGuild() return inGuild end
+-- The game's line for a friend or guild member coming online; the addon turns
+-- it into a pattern. online(name) delivers it the way the game does.
+ERR_FRIEND_ONLINE_SS = "|Hplayer:%s|h[%s]|h has come online."
+function online(name)
+    fire("CHAT_MSG_SYSTEM", ERR_FRIEND_ONLINE_SS:format(name, name), "")
+end
+-- Client settings the addon reads, see GuildNotifyOff.
+cvars = { guildMemberNotify = "1" }
+function GetCVar(name) return cvars[name] end
+function SetCVar(name, value) cvars[name] = tostring(value) end
+
 -- The chat messaging lockdown (combat in an instance). Tests flip the flag and
 -- fire the events the game would send when it ends.
 chatLockdown = false

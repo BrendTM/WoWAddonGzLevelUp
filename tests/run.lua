@@ -275,6 +275,168 @@ check("replies in raid once allowed", lastSent(), "ty Alice!")
 check("reply goes to RAID", sent[#sent].chan, "RAID")
 inRaid = false
 
+section("guild greeting reply: off by default")
+GzLevelUpDB = {}
+fire("ADDON_LOADED", "GzLevelUp")
+check("fresh install -> guild reply off", GzLevelUpDB.guildReplyEnabled, false)
+reset(); online("Nuiti"); fire("CHAT_MSG_GUILD", "moin", "Nuiti")
+check("nothing queued while off", #timers, 0)
+
+section("guild greeting reply")
+GzLevelUpDB.guildReplyEnabled = true
+
+-- Somebody comes online, says hello, and gets a hello back. Every case below
+-- uses a name of its own, since the same person is not greeted twice in a row.
+local function greeting(name, text, sender)
+    reset(); online(name)
+    fire("CHAT_MSG_GUILD", text, sender or name)
+    runTimers()
+    return lastSent()
+end
+
+reset(); online("Nuiti")
+check("a login alone says nothing", #timers, 0)
+fire("CHAT_MSG_GUILD", "Moin", "Nuiti")
+check("the greeting queues the collect timer", #timers, 1)
+check("collect timer is 6s", timers[1].sec, 6)
+runTimers()
+check("greets back", lastSent(), "Hi Nuiti!")
+check("exactly one message", #sent, 1)
+check("in guild chat", sent[1].chan, "GUILD")
+
+-- Somebody who has been online all along is answering, not arriving.
+reset(); fire("CHAT_MSG_GUILD", "moin", "Therion")
+check("no login, no reply", #timers, 0)
+
+-- Nuiti says moin again, this time to whoever came online after him.
+reset(); fire("CHAT_MSG_GUILD", "moin", "Nuiti")
+check("a second greeting is not answered again", #timers, 0)
+
+-- Several arriving together share one reply.
+reset(); online("Anna"); online("Ben")
+fire("CHAT_MSG_GUILD", "hallo zusammen", "Anna")
+fire("CHAT_MSG_GUILD", "hi", "Ben")
+check("the second greeting adds no timer", #timers, 1)
+runTimers()
+check("one reply naming both", lastSent(), "Hi Anna, Ben!")
+check("still exactly one message", #sent, 1)
+
+section("guild greeting reply: the first line decides")
+reset(); online("Cora")
+fire("CHAT_MSG_GUILD", "hat wer lust auf dm?", "Cora")
+check("something else closes the window", #timers, 0)
+fire("CHAT_MSG_GUILD", "moin", "Cora")
+check("a greeting after that is for somebody else", #timers, 0)
+
+section("guild greeting reply: what counts as a greeting")
+check("a smiley does not get in the way", greeting("Dora", "hallo :D"), "Hi Dora!")
+check("a drawn-out word counts", greeting("Emil", "hiii"), "Hi Emil!")
+check("two words count", greeting("Finn", "Guten Morgen zusammen"), "Hi Finn!")
+check("a greeting inside a sentence counts", greeting("Gerd", "so, moin erstmal"), "Hi Gerd!")
+check("hi is not hilfe", greeting("Hans", "hilfe, wo ist der eingang"), nil)
+check("nor is it part of a word", greeting("Ines", "sushi"), nil)
+
+GzLevelUpDB.guildReplyTriggers = "  ahoi ,, Tach  "
+check("the old words no longer count", greeting("Jana", "moin"), nil)
+check("the new ones do", greeting("Karl", "tach auch"), "Hi Karl!")
+GzLevelUpDB.guildReplyTriggers = nil
+fire("ADDON_LOADED", "GzLevelUp") -- back to the default list
+
+GzLevelUpDB.guildReplyMessage = "moin {name}, {count} neue"
+reset(); online("Lena"); online("Mats")
+fire("CHAT_MSG_GUILD", "hi", "Lena"); fire("CHAT_MSG_GUILD", "hi", "Mats")
+runTimers()
+check("{name} and {count}", lastSent(), "moin Lena, 2 neue")
+GzLevelUpDB.guildReplyMessage = "Hi {names}!"
+
+section("guild greeting reply: the window after the login")
+reset(); online("Nils")
+now = now + 121
+fire("CHAT_MSG_GUILD", "moin", "Nils")
+check("a late greeting is not answered", #timers, 0)
+
+-- Hopping out and back in is not worth a second hello ...
+check("first hello", greeting("Olaf", "moin"), "Hi Olaf!")
+now = now + 60
+check("no second one right after a relog", greeting("Olaf", "moin"), nil)
+-- ... but the next evening is.
+now = now + 31 * 60
+check("after the pause they are greeted again", greeting("Olaf", "moin"), "Hi Olaf!")
+now = SETTLED
+
+section("guild greeting reply: when I am around myself")
+-- Writing in guild chat means I have seen who is there.
+reset(); online("Pia")
+fire("CHAT_MSG_GUILD", "moin Pia", "Brend")
+fire("CHAT_MSG_GUILD", "moin", "Pia")
+check("my own line closes the open windows", #timers, 0)
+
+-- And it takes back a reply that was still collecting.
+reset(); online("Rolf")
+fire("CHAT_MSG_GUILD", "moin", "Rolf")
+fire("CHAT_MSG_GUILD", "moin Rolf", "Brend")
+runTimers()
+check("my own line cancels the pending reply", lastSent(), nil)
+
+-- The sender's GUID is what identifies me where the client provides one.
+reset(); online("Sven")
+fire("CHAT_MSG_GUILD", "moin", "Somebody", nil, nil, nil, nil, nil, nil, nil, nil, nil, "G-me")
+fire("CHAT_MSG_GUILD", "moin", "Sven")
+check("recognised by GUID", #timers, 0)
+reset(); online("Tom")
+fire("CHAT_MSG_GUILD", "moin", "Tom", nil, nil, nil, nil, nil, nil, nil, nil, nil, "G-tom")
+runTimers()
+check("somebody else's GUID is not me", lastSent(), "Hi Tom!")
+
+section("guild greeting reply: names")
+-- Elsewhere than on Forever chat may append a realm the online message lacks.
+check("a realm suffix still matches", greeting("Uwe", "moin", "Uwe-Blackrock"), "Hi Uwe!")
+
+-- Forever: both events carry the full name, and that is what they are matched by.
+WOW_PROJECT_ID = 18
+check("first name by default", greeting("Nuiti Steinschild", "Moin"), "Hi Nuiti!")
+reset(); online("Vera Eisenfaust")
+fire("CHAT_MSG_GUILD", "moin", "Vera Anders")
+check("the same first name is somebody else", #timers, 0)
+fire("CHAT_MSG_GUILD", "moin", "Vera Eisenfaust")
+runTimers()
+check("the right one is still greeted", lastSent(), "Hi Vera!")
+GzLevelUpDB.guildReplyFullName = true
+check("full name on request", greeting("Wim Axtbart", "moin"), "Hi Wim Axtbart!")
+WOW_PROJECT_ID = nil
+check("the option means nothing off Forever", greeting("Xaver", "moin", "Xaver-Realm"), "Hi Xaver!")
+GzLevelUpDB.guildReplyFullName = false
+
+section("guild greeting reply: switches and limits")
+fire("CHAT_MSG_SYSTEM", "Yara has gone offline.", "")
+reset(); fire("CHAT_MSG_GUILD", "moin", "Yara")
+check("other system messages are not logins", #timers, 0)
+
+inGuild = false
+check("nothing without a guild", greeting("Zoe", "moin"), nil)
+inGuild = true
+
+GzLevelUpDB.enabled = false
+check("master switch off", greeting("Adam", "moin"), nil)
+GzLevelUpDB.enabled = true
+
+-- Forever blocks addon chat during combat in instances; the hello waits.
+chatLockdown = true
+check("held back during the lockdown", greeting("Bea", "moin"), nil)
+chatLockdown = false
+fire("PLAYER_REGEN_ENABLED")
+check("and sent once it is over", lastSent(), "Hi Bea!")
+check("still to guild chat", sent[#sent].chan, "GUILD")
+
+slash("guild")
+check("guild toggles off", GzLevelUpDB.guildReplyEnabled, false)
+slash("guild")
+check("guild toggles back on", GzLevelUpDB.guildReplyEnabled, true)
+slash("guildmsg Moin {names}!")
+check("guildmsg set", GzLevelUpDB.guildReplyMessage, "Moin {names}!")
+check("and used", greeting("Cem", "moin"), "Moin Cem!")
+GzLevelUpDB.guildReplyEnabled = false
+
 section("death reply: off by default")
 GzLevelUpDB = {}
 fire("ADDON_LOADED", "GzLevelUp")
@@ -1180,6 +1342,49 @@ check("German is wider than English", deWidth > enWidth, true)
 check("German still fits a sane window", deWidth < 800, true)
 check("height is unaffected", enHeight, 430)
 check("height is the same in German", deHeight, enHeight)
+
+section("guild greeting reply: the config page")
+-- Reloads the addon as well, this time as a Forever client: that is the one
+-- that has a surname to offer.
+local function openConfig(project)
+    GetLocale = function() return "enUS" end
+    WOW_PROJECT_ID = project
+    GzLevelUpGuildFullNameCheck = nil
+    harness.loadAddon(here .. "/..")
+    GzLevelUpDB = {}
+    fire("ADDON_LOADED", "GzLevelUp")
+    SlashCmdList.GZLEVELUP("")
+    GzLevelUpConfigFrame:GetScript("OnShow")()
+end
+
+cvars.guildMemberNotify = "0"
+openConfig(18)
+check("no warning while the reply is off", GzLevelUpGuildNotifyButton:IsShown(), false)
+GzLevelUpGuildReplyCheck:SetChecked(true)
+GzLevelUpGuildReplyCheck:GetScript("OnClick")(GzLevelUpGuildReplyCheck)
+check("the checkbox switches the reply on", GzLevelUpDB.guildReplyEnabled, true)
+check("and the missing alert is pointed out", GzLevelUpGuildNotifyButton:IsShown(), true)
+GzLevelUpGuildNotifyButton:GetScript("OnClick")()
+check("the button switches the alert on", cvars.guildMemberNotify, "1")
+check("and the warning goes away", GzLevelUpGuildNotifyButton:IsShown(), false)
+
+check("Forever offers the full name", GzLevelUpGuildFullNameCheck ~= nil, true)
+GzLevelUpGuildFullNameCheck:SetChecked(true)
+GzLevelUpGuildFullNameCheck:GetScript("OnClick")(GzLevelUpGuildFullNameCheck)
+check("and the checkbox stores it", GzLevelUpDB.guildReplyFullName, true)
+
+-- Closing the window writes every field back; nothing may get lost on the way.
+GzLevelUpConfigFrame:GetScript("OnHide")()
+check("the window survives a round trip", GzLevelUpDB.guildReplyWindow, 120)
+check("so does the pause", GzLevelUpDB.guildReplyCooldown, 30)
+check("and the collect time", GzLevelUpDB.guildReplyCollect, 6)
+check("and the reply", GzLevelUpDB.guildReplyMessage, "Hi {names}!")
+check("the level-up reply is untouched", GzLevelUpDB.replyMessage, "ty {names}!")
+
+openConfig(nil)
+check("elsewhere there is no surname to offer", GzLevelUpGuildFullNameCheck, nil)
+check("the alert is on, so no warning", GzLevelUpGuildNotifyButton:IsShown(), false)
+check("the window is still the same height", GzLevelUpConfigFrame:GetHeight(), 430)
 
 print(string.format("\n%d checks, %d failed", total, fails))
 os.exit(fails == 0 and 0 or 1)
