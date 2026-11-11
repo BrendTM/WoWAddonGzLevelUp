@@ -45,7 +45,7 @@ local defaults = {
     quickPanelRows    = 1,
     quickPanelCols    = 2,
     quickPanelButtons = { "gz", "ty" },       -- one text per button, row by row
-    minimapEnabled    = false,               -- show the minimap button?
+    minimapEnabled    = true,                -- show the minimap button?
     minimapAngle      = 210,                 -- its position around the minimap
     -- Auto reply: say "ty" once after people congratulated my own level-up.
     autoReplyEnabled  = false,
@@ -232,6 +232,14 @@ local function Migrate()
     end
     GzLevelUpDB.gzButtonMessage = nil
     GzLevelUpDB.tyButtonMessage = nil
+
+    -- The minimap button used to be opt-in and is on by default now, for new
+    -- installs only. Whoever had the addon has a saved answer and keeps it;
+    -- the one exception are settings from before the button existed, which
+    -- have none - there the master switch gives the old install away.
+    if GzLevelUpDB.minimapEnabled == nil and GzLevelUpDB.enabled ~= nil then
+        GzLevelUpDB.minimapEnabled = false
+    end
 end
 
 local function ApplyDefaults()
@@ -1290,7 +1298,7 @@ local function UpdateQuickPanel()
 end
 
 -- ---------------------------------------------------------------------------
--- Minimap button (opt-in)
+-- Minimap button (on unless switched off)
 -- ---------------------------------------------------------------------------
 local minimapButton
 local ToggleConfig -- defined further down, once the config window exists

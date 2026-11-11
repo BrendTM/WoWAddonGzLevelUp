@@ -1285,12 +1285,22 @@ check("per-character variables declared",
       meta("GzLevelUp", "SavedVariablesPerCharacter"), "GzLevelUpCharDB")
 
 section("minimap button")
-check("off by default", GzLevelUpDB.minimapEnabled, false)
+-- The last thing that happened to these settings was a restore of the defaults.
+check("on by default", GzLevelUpDB.minimapEnabled, true)
 check("has a default angle", type(GzLevelUpDB.minimapAngle), "number")
 slash("minimap")
-check("toggles on", GzLevelUpDB.minimapEnabled, true)
+check("toggles off", GzLevelUpDB.minimapEnabled, false)
+fire("ADDON_LOADED", "GzLevelUp")
+check("and stays off over a login", GzLevelUpDB.minimapEnabled, false)
 slash("minimap")
-check("toggles back off", GzLevelUpDB.minimapEnabled, false)
+check("toggles back on", GzLevelUpDB.minimapEnabled, true)
+-- Settings from before the button existed have no answer saved. That is an
+-- existing install, and those do not get a button they never asked for.
+GzLevelUpDB.minimapEnabled = nil
+fire("ADDON_LOADED", "GzLevelUp")
+check("an install older than the button stays without", GzLevelUpDB.minimapEnabled, false)
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("restoring the defaults brings it up", GzLevelUpDB.minimapEnabled, true)
 GzLevelUpDB.minimapAngle = 42
 fire("ADDON_LOADED", "GzLevelUp")
 check("a moved button keeps its angle", GzLevelUpDB.minimapAngle, 42)
@@ -1476,6 +1486,9 @@ check("and an English client can speak German", builtIn(), RESET_DE)
 
 startAs("deDE", "xxXX")
 check("a language we do not have falls back to the client", builtIn(), RESET_DE)
+
+startAs("enUS", nil)
+check("a fresh install shows the minimap button", GzLevelUpDB.minimapEnabled, true)
 
 section("language: not part of a profile")
 startAs("enUS", "deDE")
