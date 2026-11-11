@@ -213,7 +213,6 @@ do
     -- the interface below is translated.
     L.TAB_MESSAGES         = "Nachrichten"
     L.TAB_REPLY            = "Auto-Antwort"
-    L.SUBTAB_REPLY_LEVEL   = "LevelUp"
     L.SUBTAB_REPLY_GUILD   = "Gilde"
     L.TAB_DEATH            = "Todesmeldung"
     L.SUBTAB_DEATH         = "Tode"
