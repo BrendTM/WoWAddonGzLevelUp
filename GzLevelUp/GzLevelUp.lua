@@ -1600,9 +1600,9 @@ local configFrame
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 
 -- Small helper: labeled checkbox. The label is exposed as cb.label so callers
--- can anchor to it and grey it out.
-local function CreateCheck(parent, label)
-    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+-- can anchor to it and grey it out. `name` is optional and makes it a global.
+local function CreateCheck(parent, label, name)
+    local cb = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
     cb:SetSize(26, 26)
     local fs = cb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
@@ -1885,46 +1885,43 @@ local function BuildConfig()
         blocks[i] = block
     end
 
-    -- === Tab 2: auto reply ================================================
-    local replyCB = CreateCheck(replyPage, L.OPT_AUTOREPLY)
-    replyCB:SetPoint("TOPLEFT", 26, 0)
+    -- A page split into sub-pages, with a row of small tabs on its header
+    -- line. Returns the containers in the order of the labels. Each of them
+    -- covers the page from `top` downwards and only the selected one is shown,
+    -- so all of them can use the same offsets.
+    local function CreateSubPages(page, labels, top)
+        local subs, subTabs = {}, {}
+        for i, label in ipairs(labels) do
+            local p = CreateFrame("Frame", nil, page)
+            p:SetPoint("TOPLEFT", page, "TOPLEFT", 0, top or 0)
+            p:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+            subs[i] = p
 
-    local replyHelp = CreateHelpIcon(replyPage, L.REPLY_HELP_TITLE, L.REPLY_HELP)
-    replyHelp:SetPoint("TOPRIGHT", -24, 2)
+            local t = CreateTab(page, label)
+            if i == 1 then
+                t:SetPoint("TOPLEFT", 26, 6)
+            else
+                t:SetPoint("LEFT", subTabs[i - 1], "RIGHT", 6, 0)
+            end
+            subTabs[i] = t
+        end
 
-    local replyMsgLabel = replyPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    replyMsgLabel:SetPoint("TOPLEFT", 36, -36)
-    replyMsgLabel:SetText(L.REPLY_MESSAGE_LABEL)
+        local function Select(index)
+            for i, t in ipairs(subTabs) do
+                SetTabActive(t, i == index)
+                if i == index then subs[i]:Show() else subs[i]:Hide() end
+            end
+        end
+        for i, t in ipairs(subTabs) do
+            t:SetScript("OnClick", function() Select(i) end)
+        end
+        Select(1)
+        return subs
+    end
 
-    local replyEdit = CreateFrame("EditBox", nil, replyPage, "InputBoxTemplate")
-    replyEdit:SetHeight(26)
-    replyEdit:SetPoint("TOPLEFT", 36, -56)
-    replyEdit:SetPoint("TOPRIGHT", -32, -56)
-    replyEdit:SetAutoFocus(false)
-    replyEdit:SetMaxLetters(240)
-
-    local replyPreview = replyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    replyPreview:SetPoint("TOPLEFT", 38, -87)
-    replyPreview:SetPoint("TOPRIGHT", -34, -87)
-    replyPreview:SetJustifyH("LEFT")
-
-    local triggerLabel = replyPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    triggerLabel:SetPoint("TOPLEFT", 36, -114)
-    triggerLabel:SetText(L.REPLY_TRIGGERS_LABEL)
-
-    local triggerEdit = CreateFrame("EditBox", nil, replyPage, "InputBoxTemplate")
-    triggerEdit:SetHeight(26)
-    triggerEdit:SetPoint("TOPLEFT", 36, -134)
-    triggerEdit:SetPoint("TOPRIGHT", -32, -134)
-    triggerEdit:SetAutoFocus(false)
-    triggerEdit:SetMaxLetters(240)
-
-    local collectRow = CreateSecondsRow(replyPage, -172, L.REPLY_COLLECT_LABEL)
-    local windowRow  = CreateSecondsRow(replyPage, -200, L.REPLY_WINDOW_LABEL)
-
-    -- Greys out the whole tab while auto reply is off.
-    local function SetReplyEnabled(on)
-        for _, e in ipairs({ replyEdit, triggerEdit, collectRow.edit, windowRow.edit }) do
+    -- Greys out the fields of a reply while it is switched off.
+    local function SetFieldsEnabled(on, edits, labels, preview)
+        for _, e in ipairs(edits) do
             e:EnableMouse(on)
             if on then
                 e:SetTextColor(1, 1, 1)
@@ -1935,19 +1932,163 @@ local function BuildConfig()
         end
         local r, g, b = 1, 0.82, 0
         if not on then r, g, b = 0.5, 0.5, 0.5 end
-        for _, fs in ipairs({ replyMsgLabel, triggerLabel, collectRow.label, windowRow.label }) do
+        for _, fs in ipairs(labels) do
             fs:SetTextColor(r, g, b)
         end
         if on then
-            replyPreview:SetTextColor(1, 1, 1)
+            preview:SetTextColor(1, 1, 1)
         else
-            replyPreview:SetTextColor(0.5, 0.5, 0.5)
+            preview:SetTextColor(0.5, 0.5, 0.5)
         end
+    end
+
+    -- A message field with its label above and the live preview below, the
+    -- way both replies show theirs.
+    local function CreateMessageField(parent, y, labelText, withPreview)
+        local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", 36, y)
+        label:SetText(labelText)
+
+        local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+        edit:SetHeight(26)
+        edit:SetPoint("TOPLEFT", 36, y - 20)
+        edit:SetPoint("TOPRIGHT", -32, y - 20)
+        edit:SetAutoFocus(false)
+        edit:SetMaxLetters(240)
+
+        local preview
+        if withPreview then
+            preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            preview:SetPoint("TOPLEFT", 38, y - 51)
+            preview:SetPoint("TOPRIGHT", -34, y - 51)
+            preview:SetJustifyH("LEFT")
+        end
+        return label, edit, preview
+    end
+
+    -- === Tab 2: auto reply ================================================
+    -- Two replies live here, each on a sub-page of its own: thanking for a
+    -- "gz" after my level-up, and greeting back in guild chat. The sub-tab row
+    -- takes the header line, so the pages start one row further down.
+    local replySubs = CreateSubPages(replyPage,
+        { L.SUBTAB_REPLY_LEVEL, L.SUBTAB_REPLY_GUILD }, -26)
+    local levelSub, guildSub = replySubs[1], replySubs[2]
+
+    -- --- Sub-page: after my level-up ----------------------------------------
+    local replyCB = CreateCheck(levelSub, L.OPT_AUTOREPLY)
+    replyCB:SetPoint("TOPLEFT", 26, 0)
+
+    -- The help icons sit on the header line next to the sub-tabs, one per
+    -- sub-page, so each shows only while its page does.
+    local replyHelp = CreateHelpIcon(levelSub, L.REPLY_HELP_TITLE, L.REPLY_HELP)
+    replyHelp:SetPoint("TOPRIGHT", replyPage, "TOPRIGHT", -24, 2)
+
+    local replyMsgLabel, replyEdit, replyPreview =
+        CreateMessageField(levelSub, -36, L.REPLY_MESSAGE_LABEL, true)
+    local triggerLabel, triggerEdit =
+        CreateMessageField(levelSub, -114, L.REPLY_TRIGGERS_LABEL)
+
+    local collectRow = CreateSecondsRow(levelSub, -172, L.REPLY_COLLECT_LABEL)
+    local windowRow  = CreateSecondsRow(levelSub, -200, L.REPLY_WINDOW_LABEL)
+
+    local function SetReplyEnabled(on)
+        SetFieldsEnabled(on,
+            { replyEdit, triggerEdit, collectRow.edit, windowRow.edit },
+            { replyMsgLabel, triggerLabel, collectRow.label, windowRow.label },
+            replyPreview)
     end
 
     replyCB:SetScript("OnClick", function(self)
         GzLevelUpDB.autoReplyEnabled = self:GetChecked() and true or false
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
+    end)
+
+    -- --- Sub-page: guild greeting -------------------------------------------
+    -- Laid out like its neighbour, so switching between the two does not make
+    -- anything jump.
+    local guildCB = CreateCheck(guildSub, L.OPT_GUILDREPLY, "GzLevelUpGuildReplyCheck")
+    guildCB:SetPoint("TOPLEFT", 26, 0)
+
+    local guildHelp = CreateHelpIcon(guildSub, L.GUILD_HELP_TITLE, L.GUILD_HELP)
+    guildHelp:SetPoint("TOPRIGHT", replyPage, "TOPRIGHT", -24, 2)
+
+    local guildMsgLabel, guildEdit, guildPreview =
+        CreateMessageField(guildSub, -36, L.REPLY_MESSAGE_LABEL, true)
+    local guildTrigLabel, guildTrigEdit =
+        CreateMessageField(guildSub, -114, L.GUILD_TRIGGERS_LABEL)
+
+    local guildWindowRow   = CreateSecondsRow(guildSub, -172, L.GUILD_WINDOW_LABEL)
+    local guildCollectRow  = CreateSecondsRow(guildSub, -200, L.GUILD_COLLECT_LABEL)
+    local guildCooldownRow = CreateSecondsRow(guildSub, -228, L.GUILD_COOLDOWN_LABEL, L.GUILD_MINUTES)
+    -- Both of these run into three digits.
+    guildWindowRow.edit:SetMaxLetters(3)
+    guildCooldownRow.edit:SetMaxLetters(3)
+
+    -- Only Forever characters have a surname to choose about.
+    local guildFullCB
+    if IsForever() then
+        guildFullCB = CreateCheck(guildSub, L.OPT_GUILD_FULLNAME, "GzLevelUpGuildFullNameCheck")
+        guildFullCB:SetPoint("TOPLEFT", 26, -246)
+        guildFullCB:SetScript("OnClick", function(self)
+            GzLevelUpDB.guildReplyFullName = self:GetChecked() and true or false
+        end)
+    end
+
+    -- Without the game's own alert no login is ever reported, and the reply
+    -- would silently never fire. Say so, and offer to switch the alert on -
+    -- on a click only, the addon never changes a game setting by itself.
+    local warnY = guildFullCB and -278 or -256
+    local guildWarn = guildSub:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    guildWarn:SetPoint("TOPLEFT", 38, warnY)
+    guildWarn:SetPoint("TOPRIGHT", -140, warnY)
+    guildWarn:SetJustifyH("LEFT")
+    guildWarn:SetTextColor(1, 0.3, 0.3)
+    guildWarn:SetText(L.GUILD_NOTIFY_OFF)
+
+    local guildWarnBtn = CreateFrame("Button", "GzLevelUpGuildNotifyButton", guildSub,
+        "UIPanelButtonTemplate")
+    guildWarnBtn:SetSize(100, 22)
+    guildWarnBtn:SetPoint("TOPRIGHT", -32, warnY + 2)
+    guildWarnBtn:SetText(L.BTN_GUILD_NOTIFY)
+
+    -- Shown only while it matters: the reply is on and the alert is off.
+    local function UpdateGuildWarning()
+        if GzLevelUpDB.guildReplyEnabled and GuildNotifyOff() then
+            guildWarn:Show()
+            guildWarnBtn:Show()
+        else
+            guildWarn:Hide()
+            guildWarnBtn:Hide()
+        end
+    end
+
+    guildWarnBtn:SetScript("OnClick", function()
+        local set = (C_CVar and C_CVar.SetCVar) or SetCVar
+        if set then set("guildMemberNotify", "1") end
+        UpdateGuildWarning()
+    end)
+
+    local function SetGuildEnabled(on)
+        SetFieldsEnabled(on,
+            { guildEdit, guildTrigEdit, guildWindowRow.edit, guildCollectRow.edit,
+              guildCooldownRow.edit },
+            { guildMsgLabel, guildTrigLabel, guildWindowRow.label, guildCollectRow.label,
+              guildCooldownRow.label },
+            guildPreview)
+        if guildFullCB then
+            guildFullCB:EnableMouse(on)
+            if on then
+                guildFullCB.label:SetTextColor(1, 0.82, 0)
+            else
+                guildFullCB.label:SetTextColor(0.5, 0.5, 0.5)
+            end
+        end
+        UpdateGuildWarning()
+    end
+
+    guildCB:SetScript("OnClick", function(self)
+        GzLevelUpDB.guildReplyEnabled = self:GetChecked() and true or false
+        SetGuildEnabled(GzLevelUpDB.guildReplyEnabled)
     end)
 
     -- === Tab 3: death reply ===============================================
@@ -1964,38 +2105,10 @@ local function BuildConfig()
     local deathHelp = CreateHelpIcon(deathPage, L.DEATH_HELP_TITLE, L.DEATH_HELP)
     deathHelp:SetPoint("TOPRIGHT", -24, 2)
 
-    -- One container per sub-page, both covering the whole tab: only the
-    -- selected one is shown, so both can use the same offsets.
-    local function CreateSubPage()
-        local p = CreateFrame("Frame", nil, deathPage)
-        p:SetAllPoints(deathPage)
-        return p
-    end
-    local deathSub, rezSub = CreateSubPage(), CreateSubPage()
-
     -- The sub-tab row shares the header line with the delay column on the
     -- right, which is what keeps the window the height it has always been.
-    local deathSubTabs = {}
-    for i, label in ipairs({ L.SUBTAB_DEATH, L.SUBTAB_REZ }) do
-        local t = CreateTab(deathPage, label)
-        if i == 1 then
-            t:SetPoint("TOPLEFT", 26, 6)
-        else
-            t:SetPoint("LEFT", deathSubTabs[i - 1], "RIGHT", 6, 0)
-        end
-        deathSubTabs[i] = t
-    end
-
-    local function SelectDeathSub(index)
-        for i, t in ipairs(deathSubTabs) do SetTabActive(t, i == index) end
-        if index == 1 then deathSub:Show() else deathSub:Hide() end
-        if index == 2 then rezSub:Show()   else rezSub:Hide()   end
-    end
-
-    for i, t in ipairs(deathSubTabs) do
-        t:SetScript("OnClick", function() SelectDeathSub(i) end)
-    end
-    SelectDeathSub(1)
+    local deathSubs = CreateSubPages(deathPage, { L.SUBTAB_DEATH, L.SUBTAB_REZ })
+    local deathSub, rezSub = deathSubs[1], deathSubs[2]
 
     -- A thin line between the blocks of a sub-page and its settings rows.
     local function CreateSubSep(page, y)
@@ -2347,6 +2460,9 @@ local function BuildConfig()
         local sample = { L.PREVIEW_NAME_1, L.PREVIEW_NAME_2 }
         replyPreview:SetText(L.PREVIEW_LABEL .. " \""
             .. FormatReply(replyEdit:GetText(), sample) .. "\"")
+        -- Same for the guild: two members came online and said hello.
+        guildPreview:SetText(L.PREVIEW_LABEL .. " \""
+            .. FormatReply(guildEdit:GetText(), sample) .. "\"")
 
         -- Death preview: two names for the group and the wipe line, so {names}
         -- and {count} actually show what they do. My own death is about me, and
@@ -2384,6 +2500,11 @@ local function BuildConfig()
         GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
         GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
         GzLevelUpDB.replyWindow     = ClampDelay(windowRow.edit:GetText())
+        GzLevelUpDB.guildReplyMessage  = guildEdit:GetText()
+        GzLevelUpDB.guildReplyTriggers = guildTrigEdit:GetText()
+        GzLevelUpDB.guildReplyWindow   = ClampTo(guildWindowRow.edit:GetText(), MAX_GUILD_WINDOW)
+        GzLevelUpDB.guildReplyCollect  = ClampDelay(guildCollectRow.edit:GetText())
+        GzLevelUpDB.guildReplyCooldown = ClampTo(guildCooldownRow.edit:GetText(), MAX_GUILD_COOLDOWN)
         for i, e in ipairs(quickEdits) do
             if e:IsShown() then LiveButtonText(i, e:GetText()) end
         end
@@ -2410,8 +2531,9 @@ local function BuildConfig()
     for _, block in ipairs(deathBlocks) do WireBlock(block, block.cat)            end
 
     replyEdit:SetScript("OnTextChanged", UpdatePreview)
+    guildEdit:SetScript("OnTextChanged", UpdatePreview)
 
-    local focusEdits = { replyEdit, triggerEdit }
+    local focusEdits = { replyEdit, triggerEdit, guildEdit, guildTrigEdit }
     for _, e in ipairs(quickEdits) do focusEdits[#focusEdits + 1] = e end
     for _, e in ipairs(focusEdits) do
         e:SetScript("OnEditFocusLost", Commit)
@@ -2424,6 +2546,9 @@ local function BuildConfig()
     for _, row in ipairs({
         { collectRow,      "replyCollect" },
         { windowRow,       "replyWindow" },
+        { guildWindowRow,   "guildReplyWindow" },
+        { guildCollectRow,  "guildReplyCollect" },
+        { guildCooldownRow, "guildReplyCooldown" },
         { collectDeathRow, "deathCollect" },
         { wipeLimitRow,    "deathWipeLimit" },
         { collectRezRow,   "rezCollect" },
@@ -2481,6 +2606,20 @@ local function BuildConfig()
         windowRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.replyWindow)))
         windowRow.edit:SetCursorPosition(0)
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
+
+        guildCB:SetChecked(GzLevelUpDB.guildReplyEnabled)
+        guildEdit:SetText(GzLevelUpDB.guildReplyMessage)
+        guildEdit:SetCursorPosition(0)
+        guildTrigEdit:SetText(GzLevelUpDB.guildReplyTriggers)
+        guildTrigEdit:SetCursorPosition(0)
+        guildWindowRow.edit:SetText(tostring(ClampTo(GzLevelUpDB.guildReplyWindow, MAX_GUILD_WINDOW)))
+        guildWindowRow.edit:SetCursorPosition(0)
+        guildCollectRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.guildReplyCollect)))
+        guildCollectRow.edit:SetCursorPosition(0)
+        guildCooldownRow.edit:SetText(tostring(ClampTo(GzLevelUpDB.guildReplyCooldown, MAX_GUILD_COOLDOWN)))
+        guildCooldownRow.edit:SetCursorPosition(0)
+        if guildFullCB then guildFullCB:SetChecked(GzLevelUpDB.guildReplyFullName) end
+        SetGuildEnabled(GzLevelUpDB.guildReplyEnabled)
 
         quickCB:SetChecked(GzLevelUpDB.quickPanelEnabled)
         rowsSlider:SetValue(ClampGrid(GzLevelUpDB.quickPanelRows))

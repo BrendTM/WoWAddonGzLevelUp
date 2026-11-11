@@ -1343,5 +1343,48 @@ check("German still fits a sane window", deWidth < 800, true)
 check("height is unaffected", enHeight, 430)
 check("height is the same in German", deHeight, enHeight)
 
+section("guild greeting reply: the config page")
+-- Reloads the addon as well, this time as a Forever client: that is the one
+-- that has a surname to offer.
+local function openConfig(project)
+    GetLocale = function() return "enUS" end
+    WOW_PROJECT_ID = project
+    GzLevelUpGuildFullNameCheck = nil
+    harness.loadAddon(here .. "/..")
+    GzLevelUpDB = {}
+    fire("ADDON_LOADED", "GzLevelUp")
+    SlashCmdList.GZLEVELUP("")
+    GzLevelUpConfigFrame:GetScript("OnShow")()
+end
+
+cvars.guildMemberNotify = "0"
+openConfig(18)
+check("no warning while the reply is off", GzLevelUpGuildNotifyButton:IsShown(), false)
+GzLevelUpGuildReplyCheck:SetChecked(true)
+GzLevelUpGuildReplyCheck:GetScript("OnClick")(GzLevelUpGuildReplyCheck)
+check("the checkbox switches the reply on", GzLevelUpDB.guildReplyEnabled, true)
+check("and the missing alert is pointed out", GzLevelUpGuildNotifyButton:IsShown(), true)
+GzLevelUpGuildNotifyButton:GetScript("OnClick")()
+check("the button switches the alert on", cvars.guildMemberNotify, "1")
+check("and the warning goes away", GzLevelUpGuildNotifyButton:IsShown(), false)
+
+check("Forever offers the full name", GzLevelUpGuildFullNameCheck ~= nil, true)
+GzLevelUpGuildFullNameCheck:SetChecked(true)
+GzLevelUpGuildFullNameCheck:GetScript("OnClick")(GzLevelUpGuildFullNameCheck)
+check("and the checkbox stores it", GzLevelUpDB.guildReplyFullName, true)
+
+-- Closing the window writes every field back; nothing may get lost on the way.
+GzLevelUpConfigFrame:GetScript("OnHide")()
+check("the window survives a round trip", GzLevelUpDB.guildReplyWindow, 120)
+check("so does the pause", GzLevelUpDB.guildReplyCooldown, 30)
+check("and the collect time", GzLevelUpDB.guildReplyCollect, 6)
+check("and the reply", GzLevelUpDB.guildReplyMessage, "Hi {names}!")
+check("the level-up reply is untouched", GzLevelUpDB.replyMessage, "ty {names}!")
+
+openConfig(nil)
+check("elsewhere there is no surname to offer", GzLevelUpGuildFullNameCheck, nil)
+check("the alert is on, so no warning", GzLevelUpGuildNotifyButton:IsShown(), false)
+check("the window is still the same height", GzLevelUpConfigFrame:GetHeight(), 430)
+
 print(string.format("\n%d checks, %d failed", total, fails))
 os.exit(fails == 0 and 0 or 1)
