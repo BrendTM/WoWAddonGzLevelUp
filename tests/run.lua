@@ -46,6 +46,10 @@ end
 
 fire("ADDON_LOADED", "GzLevelUp")
 fire("GROUP_ROSTER_UPDATE")
+-- Everybody was first seen at 0. A level event right after joining is taken as
+-- the join settling, so the suite runs with the group long since settled.
+SETTLED = 60
+now = SETTLED
 
 section("defaults: group on, self off, pets off")
 reset(); levelUp("party1")
@@ -413,6 +417,43 @@ fire("UNIT_HEALTH", "party4")
 check("no baseline while the name is missing", #timers, 0)
 world.party4 = nil
 
+section("level-up: a member who just joined")
+-- Left at 20, levelled elsewhere, comes back: the roster lists them before
+-- their data is there, and the level then arrives through UNIT_LEVEL.
+world.party4 = { name = "Frank", guid = "G-frank", level = 20, exists = true }
+fire("GROUP_ROSTER_UPDATE")
+world.party4 = nil
+fire("GROUP_ROSTER_UPDATE")
+now = now + 600
+world.party4 = { name = "Unknown", guid = "G-frank", level = 0, exists = true }
+fire("GROUP_ROSTER_UPDATE")
+now = now + 30 -- slow to load; no grace period covers this
+world.party4.name, world.party4.level = "Frank", 22
+reset(); fire("UNIT_NAME_UPDATE", "party4"); fire("UNIT_LEVEL", "party4")
+check("a rejoining member's old level is forgotten", lastSent(), nil)
+reset(); levelUp("party4")
+check("their next level-up is announced", lastSent(), "Gz Frank!")
+world.party4 = nil
+fire("GROUP_ROSTER_UPDATE")
+
+-- A placeholder level that outlives the missing name: the real one follows
+-- within moments of joining and is no level-up either.
+world.party4 = { name = "Unknown", guid = "G-gina", level = 1, exists = true }
+fire("GROUP_ROSTER_UPDATE")
+reset(); fire("UNIT_LEVEL", "party4")
+world.party4.name = "Gina"
+fire("UNIT_NAME_UPDATE", "party4")
+now = now + 2
+world.party4.level = 31
+fire("UNIT_LEVEL", "party4")
+check("a level settling after the join is silent", lastSent(), nil)
+now = now + 60
+reset(); levelUp("party4")
+check("a real level-up later is announced", lastSent(), "Gz Gina!")
+world.party4 = nil
+fire("GROUP_ROSTER_UPDATE")
+now = SETTLED
+
 section("death reply: delay and raid chat")
 revive("party1")
 GzLevelUpDB.deathDelay = 5
@@ -542,7 +583,7 @@ logRez("G-alice")
 now = now + 90
 reset(); revive("party1")
 check("a stale cast does not count", #timers, 0)
-now = 0
+now = SETTLED
 
 -- A cast on somebody else is not about this ghost.
 world.party1.dead, world.party1.ghost = true, true
@@ -612,7 +653,7 @@ fire("RESURRECT_REQUEST", "Bob")
 now = now + 90
 reset(); revive("player")
 check("a stale offer does not count", #timers, 0)
-now = 0
+now = SETTLED
 
 -- Declining by releasing ends the offer: walking into the portal right after,
 -- next to whoever offered, is still my own doing.
@@ -700,7 +741,7 @@ chatLockdown = false
 fire("PLAYER_REGEN_ENABLED")
 check("only the fresh line survives", #sent, 1)
 check("which is the recent one", lastSent(), "Gz Bob!")
-now = 0
+now = SETTLED
 
 -- The auto reply goes through the same queue.
 GzLevelUpDB.autoReplyEnabled = true
