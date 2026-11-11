@@ -1396,8 +1396,11 @@ GzLevelUpProfilesDB = GzLevelUpProfilesDB or {}
 
 -- Where a window was dragged to is not a setting. Carrying those along would
 -- make the panels jump across the screen on every switch, so they stay put.
+-- The language is a setting, but one for the person rather than the character:
+-- nobody reads German on the healer and English on the hunter.
 local NOT_IN_PROFILE = {
     configPos = true, quickPanelPos = true, minimapAngle = true,
+    language = true,
 }
 
 local ReloadConfigUI -- set by BuildConfig, once the window exists
@@ -1556,6 +1559,9 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
         OnCombatLog()
     elseif event == "ADDON_LOADED" then
         if arg1 == ADDON then
+            -- First: the saved choice is known only now, and the default
+            -- profile below is named in whatever language is in use.
+            ns.SetLanguage(GzLevelUpDB and GzLevelUpDB.language)
             ApplyDefaults()
             InitProfiles()
         end
@@ -2387,6 +2393,79 @@ local function BuildConfig()
     resetBtn:SetPoint("TOPLEFT", 30, -196)
     resetBtn:SetText(L.BTN_RESET)
 
+    -- --- Language ---------------------------------------------------------
+    -- Below the reset button on purpose: everything above it belongs to the
+    -- profile, this does not.
+    local languageSep = settingsPage:CreateTexture(nil, "ARTWORK")
+    languageSep:SetTexture(WHITE)
+    languageSep:SetHeight(1)
+    languageSep:SetPoint("TOPLEFT", 30, -236)
+    languageSep:SetPoint("TOPRIGHT", -30, -236)
+    languageSep:SetVertexColor(1, 1, 1, 0.15)
+
+    local languageLabel = settingsPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    languageLabel:SetPoint("TOPLEFT", 30, -258)
+    languageLabel:SetText(L.LANGUAGE_LABEL)
+
+    local languageHelp = CreateHelpIcon(settingsPage, L.LANGUAGE_HELP_TITLE, L.LANGUAGE_HELP)
+    languageHelp:SetPoint("LEFT", languageLabel, "RIGHT", 6, 0)
+
+    local languageDrop = CreateFrame("Frame", "GzLevelUpLanguageDropDown", settingsPage,
+                                     "UIDropDownMenuTemplate")
+    languageDrop:SetPoint("LEFT", languageHelp, "RIGHT", -6, -2)
+
+    -- What the dropdown shows is the language the next load will bring, which
+    -- is not the one on screen while a change is waiting for its reload.
+    local function RefreshLanguageUI()
+        local chosen = ns.ResolveLanguage(GzLevelUpDB.language)
+        for _, language in ipairs(ns.LANGUAGES) do
+            if language.code == chosen then
+                UIDropDownMenu_SetText(languageDrop, language.name)
+            end
+        end
+    end
+
+    -- The labels of a window that already exists cannot be swapped in place,
+    -- so a new language starts with the next load. The question is asked in
+    -- the language that was just picked: whoever picks one can read that one.
+    StaticPopupDialogs["GZLEVELUP_RELOAD"] = {
+        text = L.LANGUAGE_RELOAD,
+        button1 = L.BTN_RELOAD,
+        button2 = L.BTN_LATER,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+        OnAccept = function() ReloadUI() end,
+    }
+
+    local function ChooseLanguage(code)
+        GzLevelUpDB.language = code
+        RefreshLanguageUI()
+        StaticPopup_Hide("GZLEVELUP_RELOAD")
+        if code == ns.language then return end -- back to what is on screen
+        local popup = StaticPopupDialogs["GZLEVELUP_RELOAD"]
+        popup.text    = ns.TextIn(code, "LANGUAGE_RELOAD")
+        popup.button1 = ns.TextIn(code, "BTN_RELOAD")
+        popup.button2 = ns.TextIn(code, "BTN_LATER")
+        StaticPopup_Show("GZLEVELUP_RELOAD")
+    end
+
+    UIDropDownMenu_SetWidth(languageDrop, 110)
+    UIDropDownMenu_Initialize(languageDrop, function(_, level)
+        local chosen = ns.ResolveLanguage(GzLevelUpDB.language)
+        for _, language in ipairs(ns.LANGUAGES) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text    = language.name
+            info.checked = (language.code == chosen)
+            info.func    = function()
+                CloseDropDownMenus()
+                ChooseLanguage(language.code)
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+
     -- === Tab 6: info ======================================================
     -- Everything here comes from the .toc, so a release only has to stamp the
     -- version in one place.
@@ -2660,6 +2739,7 @@ local function BuildConfig()
     ReloadConfigUI = function()
         LoadValues()
         RefreshProfileUI()
+        RefreshLanguageUI()
     end
 
     -- A hand-built dialog rather than a StaticPopup: those cannot carry a

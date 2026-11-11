@@ -1386,5 +1386,96 @@ check("elsewhere there is no surname to offer", GzLevelUpGuildFullNameCheck, nil
 check("the alert is on, so no warning", GzLevelUpGuildNotifyButton:IsShown(), false)
 check("the window is still the same height", GzLevelUpConfigFrame:GetHeight(), 430)
 
+section("language: the client decides until somebody chooses")
+-- Reloads the addon once more, each time as a client of a given language with
+-- a given saved choice. The reset popup's text stands in for "the language the
+-- window was built in": it is one of the few labels a test can get hold of.
+local RESET_EN = "Reset the active profile to its default settings?"
+local RESET_DE = "Das aktive Profil auf die Standardeinstellungen zurücksetzen?"
+
+local function startAs(client, saved)
+    GetLocale = function() return client end
+    WOW_PROJECT_ID = nil
+    popupShown, reloads = nil, 0
+    harness.loadAddon(here .. "/..")
+    GzLevelUpDB, GzLevelUpProfilesDB = { language = saved }, {}
+    fire("ADDON_LOADED", "GzLevelUp")
+    SlashCmdList.GZLEVELUP("")
+    GzLevelUpConfigFrame:GetScript("OnShow")()
+end
+
+local function builtIn() return StaticPopupDialogs["GZLEVELUP_RESET"].text end
+local function shownLanguage() return GzLevelUpLanguageDropDown._dropText end
+
+-- Click the entry with this name in the language menu.
+local function pick(name)
+    for _, entry in ipairs(dropdownEntries(GzLevelUpLanguageDropDown)) do
+        if entry.text == name then entry.func() end
+    end
+end
+
+startAs("deDE", nil)
+check("a German client gets German", builtIn(), RESET_DE)
+check("and the dropdown says so", shownLanguage(), "Deutsch")
+check("nothing is saved for it", GzLevelUpDB.language, nil)
+local languages = dropdownEntries(GzLevelUpLanguageDropDown)
+check("the menu offers both languages",
+      (languages[1].text or "") .. "/" .. (languages[2].text or ""), "English/Deutsch")
+check("with the one in use ticked", languages[2].checked, true)
+check("and only that one", languages[1].checked, false)
+check("the first profile is named in German", GzLevelUpProfilesDB.active, "Standard")
+
+startAs("enUS", nil)
+check("an English client gets English", builtIn(), RESET_EN)
+check("and the dropdown says so", shownLanguage(), "English")
+
+startAs("frFR", nil)
+check("any other client gets English", builtIn(), RESET_EN)
+check("and the dropdown says so too", shownLanguage(), "English")
+
+section("language: choosing one")
+startAs("deDE", nil)
+pick("English")
+check("the choice is saved", GzLevelUpDB.language, "enUS")
+check("the dropdown shows it", shownLanguage(), "English")
+check("the window itself waits for the reload", builtIn(), RESET_DE)
+check("which the addon offers", popupShown, "GZLEVELUP_RELOAD")
+local ask = StaticPopupDialogs["GZLEVELUP_RELOAD"]
+check("asking in the language just picked", ask.text,
+      "The language changes once the interface has been reloaded. Reload now?")
+check("buttons included", ask.button1 .. "/" .. ask.button2, "Reload/Later")
+check("nothing reloads by itself", reloads, 0)
+ask.OnAccept()
+check("accepting reloads the interface", reloads, 1)
+
+pick("Deutsch")
+check("picking the old one again is saved too", GzLevelUpDB.language, "deDE")
+check("and takes the question back", popupShown, nil)
+
+startAs("deDE", "enUS")
+check("after the reload a German client speaks English", builtIn(), RESET_EN)
+check("the dropdown agrees", shownLanguage(), "English")
+check("no question on the way in", popupShown, nil)
+pick("Deutsch")
+check("the way back is asked in German", StaticPopupDialogs["GZLEVELUP_RELOAD"].text,
+      "Die Sprache wechselt, sobald die Oberfläche neu geladen wurde. Jetzt neu laden?")
+
+startAs("enUS", "deDE")
+check("and an English client can speak German", builtIn(), RESET_DE)
+
+startAs("deDE", "xxXX")
+check("a language we do not have falls back to the client", builtIn(), RESET_DE)
+
+section("language: not part of a profile")
+startAs("enUS", "deDE")
+SlashCmdList.GZLEVELUP("profile new Raid")
+check("a new profile keeps the language", GzLevelUpDB.language, "deDE")
+check("without storing it", GzLevelUpProfilesDB.profiles.Raid.language, nil)
+SlashCmdList.GZLEVELUP("profile Standard")
+check("switching profiles keeps it", GzLevelUpDB.language, "deDE")
+StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
+check("and so does restoring the defaults", GzLevelUpDB.language, "deDE")
+check("which did reset the rest", GzLevelUpDB.message, "Gz {name}!")
+
 print(string.format("\n%d checks, %d failed", total, fails))
 os.exit(fails == 0 and 0 or 1)
