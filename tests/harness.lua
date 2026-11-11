@@ -15,6 +15,7 @@
 --   realm     - what GetRealmName() returns; with world.player.name it decides
 --               which character profiles are bound to
 --   now       - what GetTime() returns; move it forward to age things out
+--   tick(sec) - let that many seconds of frames pass for OnUpdate scripts
 --   fire()    - deliver an event to the addon
 --   runTimers() - run every queued timer callback
 --   dropdownEntries(frame) - what a dropdown menu would offer right now
@@ -28,6 +29,9 @@ inRaid = false
 -- Every frame that set an OnEvent script, in creation order. fire() hands an
 -- event to each of them that registered it, the way the game does.
 local eventFrames = {}
+
+-- Every frame with an OnUpdate script; tick() runs the ones that are shown.
+local updateFrames = {}
 
 -- The simulated group. Levels are mutated by the tests to trigger level-ups.
 world = {
@@ -162,6 +166,7 @@ local function frameStub()
     local real = {
         SetScript = function(o, script, fn)
             if script == "OnEvent" then eventFrames[#eventFrames + 1] = o end
+            if script == "OnUpdate" then updateFrames[#updateFrames + 1] = o end
             o._scripts[script] = fn
         end,
         -- Real, so an event only reaches the frames that asked for it.
@@ -232,6 +237,14 @@ function fire(event, ...)
     for _, f in ipairs(targets) do f._scripts.OnEvent(f, event, ...) end
 end
 
+-- Let frames pass: hand `elapsed` seconds to every OnUpdate script the game
+-- would run, which is only those of frames that are shown.
+function tick(elapsed)
+    for _, f in ipairs(updateFrames) do
+        if f._shown and f._scripts.OnUpdate then f._scripts.OnUpdate(f, elapsed) end
+    end
+end
+
 -- Let time pass: run every queued callback once.
 function runTimers()
     local due = timers
@@ -251,7 +264,7 @@ function M.loadAddon(root)
     end
 
     -- A reload starts over: the previous copy's frames must not answer anymore.
-    eventFrames = {}
+    eventFrames, updateFrames = {}, {}
     local ns = {}
     for _, file in ipairs({ "Locale.lua", "GzLevelUp.lua" }) do
         local path = root .. "/GzLevelUp/" .. file

@@ -601,6 +601,74 @@ combatLog = {}
 reset(); revive("party1")
 check("a heal is not a resurrect", #timers, 0)
 
+section("rez reply: a release nobody reported")
+-- After a wipe everybody releases and runs back. A ghost keeps the same health
+-- all the way, so no event may ever say that this corpse has released.
+world.party1.dead, world.party1.ghost = true, false
+fire("UNIT_HEALTH", "party1")
+world.party1.ghost = true -- released, and nothing fires
+tick(1)
+reset(); revive("party1")
+check("an unreported release is still noticed", #timers, 0)
+
+-- Seen as a ghost once is enough. A later look that misses it — data still
+-- loading right after my own portal — must not turn them back into a corpse.
+world.party1.dead, world.party1.ghost = true, true
+fire("UNIT_HEALTH", "party1")
+world.party1.ghost = false
+fire("PLAYER_ENTERING_WORLD")
+tick(1)
+reset(); revive("party1")
+check("a ghost stays a ghost until it is back up", #timers, 0)
+
+-- The whole group at once, one by one through the portal. (The clock moves on
+-- first, so the cast on Bob from further up has long expired.)
+now = now + 90
+for _, unit in ipairs({ "party1", "party2", "party3" }) do
+    world[unit].dead, world[unit].ghost = true, false
+    fire("UNIT_HEALTH", unit)
+end
+runTimers(); runTimers() -- let the death batch go out
+for _, unit in ipairs({ "party1", "party2", "party3" }) do world[unit].ghost = true end
+tick(0.5); tick(0.5)
+reset()
+revive("party1"); runTimers()
+revive("party2"); runTimers()
+revive("party3"); runTimers()
+check("a wipe running back in says nothing", #sent, 0)
+
+-- A corpse that stays where it fell is still welcomed back, however long the
+-- addon kept looking at it.
+world.party1.dead = true
+fire("UNIT_HEALTH", "party1")
+runTimers(); runTimers()
+tick(1); tick(1); tick(1)
+reset(); revive("party1")
+runTimers()
+check("a rez on the corpse is still welcomed", lastSent(), "wb Alice")
+
+-- Forever: whether they released can be secret. Unknown is not "no".
+SECRET = {}
+issecretvalue = function(v) return v == SECRET end
+local realIsGhost = UnitIsGhost
+UnitIsGhost = function() return SECRET end
+world.party1.dead = true
+fire("UNIT_HEALTH", "party1")
+runTimers(); runTimers()
+tick(1)
+reset(); revive("party1")
+check("an unreadable ghost state stays silent", #timers, 0)
+-- With the cast in the combat log there is nothing left to guess.
+world.party1.dead = true
+fire("UNIT_HEALTH", "party1")
+runTimers(); runTimers()
+logRez("G-alice")
+reset(); revive("party1")
+runTimers()
+check("unless the combat log saw the resurrect", lastSent(), "wb Alice")
+UnitIsGhost, issecretvalue, SECRET = realIsGhost, nil, nil
+now = SETTLED
+
 section("rez reply: my own")
 GzLevelUpDB.announceSelfRez = true
 GzLevelUpDB.selfRezMessage = "ty {name}"

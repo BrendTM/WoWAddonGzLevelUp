@@ -158,11 +158,13 @@ local JOIN_GRACE = 10
 -- never been seen alive, so it is not announced either.
 local knownDead = {}
 
--- GUID -> was that unit a ghost (released) when last seen? A ghost coming back
--- to life usually ran back to its corpse, took the spirit healer or walked into
--- an instance portal, which revives it at the entrance. None of that is
--- somebody getting them up, so it only counts as a resurrect when the combat
--- log saw a resurrect spell land on them.
+-- GUID -> has that unit released since it died? true once it was seen as a
+-- ghost, false while it is a corpse that clearly has not, nil when alive or
+-- when the client would not say. A ghost coming back to life usually ran back
+-- to its corpse, took the spirit healer or walked into an instance portal,
+-- which revives it at the entrance. None of that is somebody getting them up,
+-- so it only counts as a resurrect when the combat log saw a resurrect spell
+-- land on them.
 local knownGhost = {}
 
 -- Who offered me the last resurrect, so my own line can thank them by name.
@@ -375,20 +377,44 @@ local function IsDead(unit)
     return dead and true or false
 end
 
--- Released, i.e. running around as a ghost. Secret counts as "no".
+-- Released, i.e. running around as a ghost. A secret answer is nil: unknown,
+-- which is neither "yes" nor "no".
 local function IsGhost(unit)
     local ghost = UnitIsGhost and UnitIsGhost(unit)
-    if issecretvalue and issecretvalue(ghost) then return false end
+    if issecretvalue and issecretvalue(ghost) then return nil end
     return ghost and true or false
 end
 
--- Releasing ends whatever was offered on my corpse, so a declined offer can't
--- turn the next portal into a "ty". A resurrect cast on the corpse afterwards
--- sends a fresh offer, which is still answered.
-local function StoreGhost(unit, guid)
+-- Looks again at the dead once a second, see WatchGhosts below. Hidden frames
+-- get no OnUpdate, so it costs nothing while everybody is alive.
+local ghostWatch = CreateFrame("Frame")
+ghostWatch:Hide()
+
+-- Keeps what is known about a dead unit having released. `dead` is the state
+-- just read for it.
+--
+-- Released stays released until the unit is seen alive again: nobody goes back
+-- from ghost to corpse. Without that, one read that missed the ghost — data
+-- still loading after a portal, a secret value — erased it, and the comeback
+-- through the instance portal was welcomed like a resurrect.
+--
+-- Releasing also ends whatever was offered on my corpse, so a declined offer
+-- can't turn the next portal into a "ty". A resurrect cast on the corpse
+-- afterwards sends a fresh offer, which is still answered.
+local function StoreGhost(unit, guid, dead)
+    if not dead then
+        knownGhost[guid] = nil
+        return
+    end
+    if knownGhost[guid] then return end
+
     local ghost = IsGhost(unit)
-    if ghost and not knownGhost[guid] and guid == UnitGUID("player") then rezOffer.name = nil end
+    if ghost == nil then return end
+    if ghost and guid == UnitGUID("player") then rezOffer.name = nil end
     knownGhost[guid] = ghost
+    -- A ghost keeps the same health all the way to the portal, so no event
+    -- may ever report the release. Keep looking until it is seen.
+    if not ghost then ghostWatch:Show() end
 end
 
 local function RecordDead(unit)
@@ -401,9 +427,45 @@ local function RecordDead(unit)
     local dead = IsDead(unit)
     if dead ~= nil then
         knownDead[guid] = dead
-        StoreGhost(unit, guid)
+        StoreGhost(unit, guid, dead)
     end
 end
+
+-- A release is only ever noticed when something makes the addon look, and
+-- between dying and walking into the portal there may be no such moment: the
+-- ghost is far away, its health does not change, the roster stays the same.
+-- So every corpse that has not been seen releasing is checked again here until
+-- it has, or until it is back up.
+local GHOST_WATCH_EVERY = 1
+local watchElapsed, watchNeeded = 0, false
+
+local function WatchUnit(unit)
+    if not UnitExists(unit) then return end
+    local guid = UnitGUID(unit)
+    if not guid or (issecretvalue and issecretvalue(guid)) then return end
+    if not knownDead[guid] or knownGhost[guid] then return end
+    watchNeeded = true
+    -- Only while they are in fact still down; getting up is for the events.
+    if UnitReady(unit) and IsDead(unit) == true then StoreGhost(unit, guid, true) end
+end
+
+local function WatchGhosts()
+    watchNeeded = false
+    WatchUnit("player")
+    if IsInRaid() then
+        for i = 1, 40 do WatchUnit("raid" .. i) end
+    elseif IsInGroup() then
+        for i = 1, 4 do WatchUnit("party" .. i) end
+    end
+    if not watchNeeded then ghostWatch:Hide() end
+end
+
+ghostWatch:SetScript("OnUpdate", function(_, elapsed)
+    watchElapsed = watchElapsed + (elapsed or 0)
+    if watchElapsed < GHOST_WATCH_EVERY then return end
+    watchElapsed = 0
+    WatchGhosts()
+end)
 
 -- Silently read every member's current level and alive/dead state, so joining
 -- a group, summoning a pet or walking up to a corpse never produces a message.
@@ -753,7 +815,7 @@ local function CheckDeathOrRez(unit)
     if dead == nil then return end
     local wasGhost = knownGhost[guid]
     knownDead[guid] = dead
-    StoreGhost(unit, guid)
+    StoreGhost(unit, guid, dead)
     -- `was` is nil for a unit we have never seen either way (joined mid-fight),
     -- and neither direction may be answered from a guess.
     if was == nil or dead == was then return end
@@ -773,7 +835,9 @@ local function CheckDeathOrRez(unit)
         else
             -- Claimed either way, so a cast can't linger into a later comeback.
             local cast = ClaimRezCast(guid)
-            if not wasGhost or cast then QueueRez(kind, UnitName(unit), UnitLevel(unit)) end
+            -- Without a cast it takes a corpse that was clearly never released.
+            -- Whether they released being unknown (nil) is not good enough.
+            if cast or wasGhost == false then QueueRez(kind, UnitName(unit), UnitLevel(unit)) end
         end
     end
 end
