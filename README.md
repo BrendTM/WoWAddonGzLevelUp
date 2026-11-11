@@ -36,6 +36,9 @@ Lightweight, fully configurable, and built for **WoW Classic Era** and
   Remembered position and a size slider (50–200 %).
 - **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
   "gz" and then thank them all in a single "ty", naming everyone.
+- **Guild greeting reply** (opt-in) — when a guild member comes online and says
+  hello in guild chat, say hello back. Several arriving together get one
+  message, and nobody is greeted twice.
 - **Death reply** (opt-in) — say something when a group member dies, when you
   die, or when the group wipes. Deaths are collected for a moment and answered
   with one message naming everyone, and a wipe gets its own line instead of a
@@ -150,6 +153,8 @@ box with sensible defaults.
 | `/gz group` | Toggle announcing group members |
 | `/gz raid` | Toggle using raid chat (off by default) |
 | `/gz reply` | Toggle the auto reply after your own level-up |
+| `/gz guild` | Toggle greeting back guild members who come online |
+| `/gz guildmsg <text>` | Set the reply to a guild member's greeting |
 | `/gz pets` | Toggle announcing pets and companions |
 | `/gz death` | Toggle announcing a group member's death |
 | `/gz selfdeath` | Toggle announcing your own death |
@@ -190,6 +195,10 @@ In the auto-reply message:
 - **`{count}`** → how many there were
 
 Example: `ty {names}!`
+
+The guild greeting reply takes the same three, about whoever said hello.
+
+Example: `Moin {names}!`
 
 In the three death messages and the two resurrection messages:
 

@@ -26,6 +26,9 @@ Anniversary realms — and for the World of Warcraft: Forever beta.
 - **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
   "gz" and then thank them all in one "ty", naming everyone who congratulated
   you.
+- **Guild greeting reply** (opt-in) — when a guild member comes online and says
+  hello in guild chat, say hello back. Several arriving together get one
+  message, and nobody is greeted twice.
 - **Death reply** (opt-in) — say something when a group member dies, when *you*
   die, or when the group wipes. Deaths are collected for a moment and answered
   with one message, and a wipe gets its own line instead of a flood of them —
@@ -96,6 +99,29 @@ Nothing is sent.
   starts, so `gz` also catches "gzzz" but not "Bugzapper".
 - **Wait after the first gz** — how long to keep collecting (default 6 s).
 - **Stop listening after** — give up if nothing arrives (default 30 s).
+
+This is the **Level-up** sub-page of the tab. The second one, **Guild**, holds
+the guild greeting reply.
+
+Opt-in as well. When a guild member comes online and then says hello in guild
+chat, the addon greets them back there. Somebody who has been online all along
+is answering a greeting rather than arriving, so only a login counts — and only
+the first thing that person writes afterwards. If that is not a greeting, or if
+you write in guild chat yourself in the meantime, the addon stays quiet.
+
+- **Reply** — the message, with `{names}`, `{name}` and `{count}`.
+- **Counts as a greeting** — comma separated word list. These match whole
+  words, so `hi` catches "hiii" but not "hilfe".
+- **A greeting counts after the login for** — how long somebody has to say
+  hello (default 120 s).
+- **Wait after the first greeting** — how long to keep collecting (default 6 s).
+- **Greet the same person again after** — the pause before somebody who logs
+  out and back in is greeted again (default 30 min).
+- **Use the full name** — Forever only, where characters have a surname:
+  "Hi Nuiti Steinschild!" instead of "Hi Nuiti!".
+
+The game has to announce guild members coming online for any of this to work.
+If that alert is switched off, the page tells you and offers to switch it on.
 
 **Death reply**
 
@@ -190,6 +216,8 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz pets` | Toggle announcing pets and companions |
 | `/gz raid` | Toggle using raid chat (off by default) |
 | `/gz reply` | Toggle the auto reply after your own level-up |
+| `/gz guild` | Toggle greeting back guild members who come online |
+| `/gz guildmsg <text>` | Set the reply to a guild member's greeting |
 | `/gz death` | Toggle announcing a group member's death |
 | `/gz selfdeath` | Toggle announcing your own death |
 | `/gz wipe` | Toggle the wipe message |
@@ -230,6 +258,10 @@ In the auto-reply message:
 - **`{count}`** → how many there were
 
 Example: `ty {names}!`
+
+The guild greeting reply takes the same three, about whoever said hello.
+
+Example: `Moin {names}!`
 
 In the three death messages and the two resurrection messages:
 
