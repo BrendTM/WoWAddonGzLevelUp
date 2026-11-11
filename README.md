@@ -73,26 +73,32 @@ The config window (<code>/gz</code>) is split across six tabs:
       <sub><b>Messages</b> — a switch, a message and a delay per category</sub>
     </td>
     <td align="center" valign="top" width="50%">
-      <img src="media/example_auto_reply_panel.jpg" width="380" alt="Auto reply tab"><br>
-      <sub><b>Auto reply</b> — thank everyone who congratulated you, in one message</sub>
+      <img src="media/example_auto_reply_panel.jpg" width="380" alt="Auto reply tab, Level-up sub-page"><br>
+      <sub><b>Auto reply → Level-up</b> — thank everyone who congratulated you, in one message</sub>
     </td>
   </tr>
   <tr>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_auto_reply_guild_panel.jpg" width="380" alt="Auto reply tab, Guild sub-page"><br>
+      <sub><b>Auto reply → Guild</b> — greet back guild members who come online and say hello</sub>
+    </td>
     <td align="center" valign="top" width="50%">
       <img src="media/example_death_reply_panel.jpg" width="380" alt="Death reply tab, Deaths sub-page"><br>
       <sub><b>Death reply → Deaths</b> — a line per death, plus the collect window and the wipe threshold</sub>
     </td>
+  </tr>
+  <tr>
     <td align="center" valign="top" width="50%">
       <img src="media/example_death_reply_resurrections_panel.jpg" width="380" alt="Death reply tab, Resurrections sub-page"><br>
       <sub><b>Death reply → Resurrections</b> — the same for coming back, with its own collect window and no threshold</sub>
     </td>
-  </tr>
-  <tr>
     <td align="center" valign="top" width="50%">
       <img src="media/example_quick_panel_panel.jpg" width="380" alt="Quick panel tab"><br>
       <sub><b>Quick panel</b> — the button grid, its texts, and the panel size</sub>
     </td>
-    <td align="center" valign="top" width="50%">
+  </tr>
+  <tr>
+    <td align="center" valign="top" colspan="2">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
       <sub><b>Settings</b> — master switch, raid chat, minimap button, the settings profiles and the language</sub>
     </td>
