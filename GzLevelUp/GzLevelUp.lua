@@ -3039,12 +3039,16 @@ SlashCmdList.GZLEVELUP = function(msg)
             if name == "" then
                 print(PREFIX .. L.PROFILE_NEEDS_NAME)
             elseif CreateProfile(name, true) then
+                -- An open window still names the profile we just left, and
+                -- its Delete button still counts the profiles from before.
+                if ReloadConfigUI then ReloadConfigUI() end
                 print(PREFIX .. L.PROFILE_CREATED:format(name))
             else
                 print(PREFIX .. L.PROFILE_EXISTS:format(name))
             end
         elseif verb == "delete" then
             if DeleteProfile(name) then
+                if ReloadConfigUI then ReloadConfigUI() end
                 print(PREFIX .. L.PROFILE_DELETED:format(name))
             elseif name == ActiveProfile() then
                 print(PREFIX .. L.PROFILE_KEEP_ACTIVE)

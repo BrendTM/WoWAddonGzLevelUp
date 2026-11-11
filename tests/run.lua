@@ -1194,6 +1194,17 @@ check("the profile is gone", GzLevelUpProfilesDB.profiles.Dungeon, nil)
 check("and we landed on another one", GzLevelUpProfilesDB.active, "Default")
 check("whose settings are loaded", GzLevelUpDB.message, "Gz {name}!")
 
+-- A profile made or removed by command while the window is open: the dropdown
+-- has to follow, or it keeps naming a profile that is no longer the active one.
+local onProfile = GzLevelUpProfilesDB.active
+GzLevelUpConfigFrame:GetScript("OnShow")()
+slash("profile new Bank")
+check("a profile made by command shows in the dropdown", GzLevelUpProfileDropDown._dropText, "Bank")
+slash("profile " .. onProfile)
+slash("profile delete Bank")
+check("and the way back shows too", GzLevelUpProfileDropDown._dropText, onProfile)
+check("with the profile gone again", GzLevelUpProfilesDB.profiles.Bank, nil)
+
 section("profiles: one stored before the button grid existed")
 -- A profile made by an older build has the two fixed button keys and none of
 -- the grid ones. Switching to it has to bring it up to date on the way in,
