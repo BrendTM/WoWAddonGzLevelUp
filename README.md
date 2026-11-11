@@ -52,8 +52,9 @@ Lightweight, fully configurable, and built for **WoW Classic Era**,
   can run different messages from a hunter.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
-- **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
-  opens the settings, right-click toggles the quick panel.
+- **Minimap button** — drag it anywhere around the minimap; left-click opens
+  the settings, right-click toggles the quick panel. On by default, and one
+  checkbox or `/gz minimap` hides it.
 - **In-game config window** (`/gz`) — six tabs, live preview, auto-save, and it
   remembers where you dragged it.
 - **Localization** — English and German. It follows your game client until you
@@ -179,7 +180,7 @@ box with sensible defaults.
 | `/gz profile new <name>` | Create a profile from the current settings |
 | `/gz profile delete <name>` | Delete a profile (not the one you are on) |
 | `/gz panel` | Toggle the floating quick-buttons panel |
-| `/gz minimap` | Toggle the minimap button (off by default) |
+| `/gz minimap` | Toggle the minimap button (on by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
 | `/gz test` | Preview your current messages (nothing is sent) |
 

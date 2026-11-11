@@ -47,8 +47,9 @@ Anniversary and World of Warcraft: Forever.
   to 200%.
 - **Raid-safe** — raid chat is opt-in, so the addon stays quiet in a 40-man raid
   unless you allow it.
-- **Minimap button** (opt-in) — drag it anywhere around the minimap; left-click
-  for the settings, right-click for the quick panel.
+- **Minimap button** — drag it anywhere around the minimap; left-click for the
+  settings, right-click for the quick panel. On by default, and one checkbox or
+  `/gz minimap` hides it.
 - **In-game config window** — set everything up with `/gz`, including a live
   preview of your messages. Everything saves itself.
 - **Localization** — English and German. It follows your game client until you
@@ -180,8 +181,8 @@ what the range check notices.
 - **Also use raid chat** — off by default. In a 40-man raid an automatic "gz"
   per level-up is spam for most people, so the addon stays silent in raids
   until you switch this on. Applies to everything it sends.
-- **Show minimap button** — opt-in. Left-click opens the settings, right-click
-  toggles the quick panel, and you can drag it around the minimap.
+- **Show minimap button** — on by default. Left-click opens the settings,
+  right-click toggles the quick panel, and you can drag it around the minimap.
 - **Settings profile** — a dropdown with all your profiles plus *New* and
   *Delete*. A profile is one complete set of settings; switching binds the
   character you are on to it, so logging in on that character picks it up
@@ -239,7 +240,7 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz profile new <name>` | Create a profile from the current settings |
 | `/gz profile delete <name>` | Delete a profile (not the one you are on) |
 | `/gz panel` | Toggle the floating quick-buttons panel |
-| `/gz minimap` | Toggle the minimap button (off by default) |
+| `/gz minimap` | Toggle the minimap button (on by default) |
 | `/gz scale <pct>` | Set the quick panel size in percent (50–200) |
 | `/gz test` | Preview your current messages (nothing is sent) |
 
