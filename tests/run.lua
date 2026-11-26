@@ -985,6 +985,89 @@ fire("PLAYER_REGEN_ENABLED")
 check("and follows after the fight", lastSent(), "ty Alice!")
 GzLevelUpDB.autoReplyEnabled = false
 
+section("message lists: in order")
+GzLevelUpDB, GzLevelUpCharDB = {}, {}
+fire("ADDON_LOADED", "GzLevelUp")
+fire("GROUP_ROSTER_UPDATE")
+check("every message picks at random by default", GzLevelUpDB.messageRandom, true)
+check("including the replies", GzLevelUpDB.guildReplyMessageRandom, true)
+
+GzLevelUpDB.message = "gz {name}\n\n  grats {name}  \ngj {name}"
+GzLevelUpDB.messageRandom = false
+local said = {}
+for i = 1, 4 do
+    reset(); levelUp("party1")
+    said[i] = lastSent()
+end
+check("one after the other, blanks skipped", table.concat(said, "|"),
+      "gz Alice|grats Alice|gj Alice|gz Alice")
+check("the position is kept per character", GzLevelUpCharDB.messageNext.message, 2)
+
+-- A shorter list must not leave the position pointing past its end.
+GzLevelUpDB.message = "only {name}"
+reset(); levelUp("party1")
+check("a single line is simply sent", lastSent(), "only Alice")
+GzLevelUpDB.message = "a {name}\nb {name}"
+GzLevelUpCharDB.messageNext.message = 5
+reset(); levelUp("party1")
+check("a stale position starts over", lastSent(), "a Alice")
+
+section("message lists: at random")
+-- math.random is swapped for a scripted one, so "random" is predictable.
+local realRandom, rolls = math.random, {}
+math.random = function(n)
+    local roll = table.remove(rolls, 1) or 1
+    return math.min(roll, n)
+end
+
+GzLevelUpDB.message = "a {name}\nb {name}\nc {name}"
+GzLevelUpDB.messageRandom = true
+rolls = { 2 }
+reset(); levelUp("party1")
+check("picks the rolled line", lastSent(), "b Alice")
+-- The next roll is among the two others: 2 skips over b and lands on c.
+rolls = { 2 }
+reset(); levelUp("party1")
+check("never the same line twice in a row", lastSent(), "c Alice")
+rolls = { 2 }
+reset(); levelUp("party1")
+check("but it may come back after that", lastSent(), "b Alice")
+math.random = realRandom
+
+-- The replies draw from their lists the same way.
+GzLevelUpDB.autoReplyEnabled = true
+GzLevelUpDB.replyMessage = "ty {names}!\nthx {name}"
+GzLevelUpDB.replyMessageRandom = false
+reset(); levelUp("player")
+fire("CHAT_MSG_PARTY", "gz!", "Alice")
+runTimers()
+check("the level-up reply is a list", lastSent(), "ty Alice!")
+reset(); levelUp("player")
+fire("CHAT_MSG_PARTY", "gz!", "Bob")
+runTimers()
+check("and moves on as well", lastSent(), "thx Bob")
+GzLevelUpDB.autoReplyEnabled = false
+
+GzLevelUpDB.message = "\n  \n"
+reset(); levelUp("party1")
+check("an empty list says nothing", #sent, 0)
+
+section("message lists: slash commands")
+slash("msg Gz {name}!")
+check("a message replaces the list", GzLevelUpDB.message, "Gz {name}!")
+slash("msg add Grats {name}!")
+check("add puts a line at the end", GzLevelUpDB.message, "Gz {name}!\nGrats {name}!")
+slash("msg add")
+check("add without text changes nothing", GzLevelUpDB.message, "Gz {name}!\nGrats {name}!")
+slash("replymsg thx {names}")
+check("the level-up reply has a command now", GzLevelUpDB.replyMessage, "thx {names}")
+slash("replymsg add danke {name}")
+check("and takes additions too", GzLevelUpDB.replyMessage, "thx {names}\ndanke {name}")
+slash("selfrezmsg add ty")
+check("every message command can add", GzLevelUpDB.selfRezMessage, "ty\nty")
+slash("guildmsg Moin {names}!")
+check("replacing drops the rest", GzLevelUpDB.guildReplyMessage, "Moin {names}!")
+
 section("quick panel: the button grid")
 fire("PLAYER_ENTERING_WORLD")
 local panel = GzLevelUpQuickPanel

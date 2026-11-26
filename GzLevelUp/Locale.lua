@@ -201,6 +201,21 @@ L.HELP_SCALE           = "  /gz scale <pct>  - quick panel size in percent (50-2
 L.HELP_SELF            = "  /gz self         - also announce your own level-up (currently: %s)"
 L.HELP_PROFILE         = "  /gz profile [name | new <name> | delete <name>] - settings profiles (currently: %s)"
 L.HELP_TEST            = "  /gz test         - show current messages as preview"
+L.HELP_MSG_ADD         = "  /gz <...>msg add <text> - add a message to the list instead of replacing it"
+L.HELP_REPLYMSG        = "  /gz replymsg <t> - reply after your own level-up"
+
+-- Message lists: every message field holds several messages, one of which is
+-- picked each time. They are edited in a window of their own.
+L.BTN_EDIT_LIST        = "Edit..."
+L.BTN_SAVE             = "Save"
+L.LIST_EDITOR_HINT     = "One message per line. Each time, one of them is sent."
+L.LIST_MODE_LABEL      = "Pick"
+L.LIST_MODE_RANDOM     = "at random"
+L.LIST_MODE_ORDER      = "in order"
+L.LIST_PREVIEW_RANDOM  = "(%d messages, at random)"
+L.LIST_PREVIEW_ORDER   = "(next: %d of %d)"
+L.MESSAGE_ADDED        = "%s: added \"%s\" (%d messages)"
+L.MESSAGE_LIST         = "%s: %d messages, %s"
 
 -- ---------------------------------------------------------------------------
 -- deDE (German)
@@ -377,6 +392,19 @@ do
     L.HELP_SELF            = "  /gz self         - eigenen Levelaufstieg mit ankündigen (aktuell: %s)"
     L.HELP_PROFILE         = "  /gz profile [Name | new <Name> | delete <Name>] - Einstellungsprofile (aktuell: %s)"
     L.HELP_TEST            = "  /gz test         - aktuelle Nachrichten als Vorschau anzeigen"
+    L.HELP_MSG_ADD         = "  /gz <...>msg add <text> - Nachricht zur Liste hinzufügen statt sie zu ersetzen"
+    L.HELP_REPLYMSG        = "  /gz replymsg <t> - Antwort nach eigenem Levelaufstieg"
+
+    L.BTN_EDIT_LIST        = "Bearbeiten..."
+    L.BTN_SAVE             = "Übernehmen"
+    L.LIST_EDITOR_HINT     = "Eine Nachricht pro Zeile. Jedes Mal wird eine davon gesendet."
+    L.LIST_MODE_LABEL      = "Auswahl"
+    L.LIST_MODE_RANDOM     = "zufällig"
+    L.LIST_MODE_ORDER      = "der Reihe nach"
+    L.LIST_PREVIEW_RANDOM  = "(%d Nachrichten, zufällig)"
+    L.LIST_PREVIEW_ORDER   = "(als Nächstes: %d von %d)"
+    L.MESSAGE_ADDED        = "%s: \"%s\" hinzugefügt (%d Nachrichten)"
+    L.MESSAGE_LIST         = "%s: %d Nachrichten, %s"
 end
 
 -- ---------------------------------------------------------------------------

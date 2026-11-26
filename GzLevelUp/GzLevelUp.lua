@@ -66,6 +66,24 @@ local defaults = {
     -- (deliberately not in defaults: "no entry" means "centered").
 }
 
+-- Every setting that holds something to say. Each of them is a list: one
+-- message per line, and every time one of them is picked - at random, or one
+-- after the other. A line break is the natural separator, since no chat
+-- message can contain one, and it keeps the setting a plain string: whatever
+-- was saved before is simply a list with one entry.
+--
+-- Next to each one sits "<key>Random", which decides how the line is picked.
+local MESSAGE_KEYS = {
+    "message", "selfMessage", "petMessage",
+    "deathMessage", "selfDeathMessage", "wipeMessage",
+    "rezMessage", "selfRezMessage",
+    "replyMessage", "guildReplyMessage",
+}
+
+for _, key in ipairs(MESSAGE_KEYS) do
+    defaults[key .. "Random"] = true
+end
+
 -- Everything that differs between the three announcement categories, in one
 -- place: which DB keys hold its switch, its message template and its delay.
 local CATEGORY = {
@@ -268,6 +286,63 @@ local function Format(template, name, level, owner, names)
         :gsub("{name}", name or "?")
         :gsub("{level}", tostring(level or 0))
         :gsub("{owner}", owner or "?"))
+end
+
+-- A message setting split into its lines. Blank lines are dropped, and so is
+-- whitespace around a line - neither would make sense in chat.
+local function MessageLines(text)
+    local lines = {}
+    for raw in (text or ""):gmatch("[^\r\n]+") do
+        local line = raw:match("^%s*(.-)%s*$")
+        if line ~= "" then lines[#lines + 1] = line end
+    end
+    return lines
+end
+
+-- The form a list is stored in: its lines, one per line, nothing blank.
+local function JoinLines(lines)
+    return table.concat(lines, "\n")
+end
+
+-- Which line goes next, without using it up. In order, that is wherever the
+-- list stands; the position is kept per character, because it is about what
+-- this character said last. At random there is no "next", so the first line
+-- stands in for the list.
+local function NextLineIndex(key, count)
+    if count < 2 or GzLevelUpDB[key .. "Random"] then return 1 end
+    local next = GzLevelUpCharDB.messageNext and GzLevelUpCharDB.messageNext[key]
+    if type(next) ~= "number" or next < 1 or next > count then next = 1 end
+    return math.floor(next)
+end
+
+-- The line picked last at random, so the same one does not come twice in a
+-- row: with two or three lines a repeat would look like the addon got stuck.
+local lastRandom = {}
+
+-- Picks the line to send from a message setting and moves the list on.
+-- Returns "" for an empty list, which SendNow then keeps out of chat.
+local function PickLine(key)
+    local lines = MessageLines(GzLevelUpDB[key])
+    local count = #lines
+    if count == 0 then return "" end
+    if count == 1 then return lines[1] end
+
+    local index
+    if GzLevelUpDB[key .. "Random"] then
+        local last = lastRandom[key]
+        if last and last >= 1 and last <= count then
+            index = math.random(count - 1)
+            if index >= last then index = index + 1 end
+        else
+            index = math.random(count)
+        end
+        lastRandom[key] = index
+    else
+        index = NextLineIndex(key, count)
+        GzLevelUpCharDB.messageNext = GzLevelUpCharDB.messageNext or {}
+        GzLevelUpCharDB.messageNext[key] = index % count + 1
+    end
+    return lines[index]
 end
 
 -- "Brend-Realm" -> "Brend". Cross-realm names arrive with a realm suffix,
@@ -619,6 +694,7 @@ end
 -- moment of sending, since the group may have changed during a delay.
 function SendNow(msg, toGuild)
     if not GzLevelUpDB.enabled then return end
+    if msg == nil or msg == "" then return end -- an emptied list says nothing
     local channel
     if toGuild then
         channel = IsInGuild and IsInGuild() and "GUILD" or nil
@@ -637,7 +713,7 @@ end
 -- The placeholders are substituted NOW (at the moment of the event), only the
 -- sending waits.
 local function Dispatch(cat, name, level, owner, names)
-    local msg   = Format(GzLevelUpDB[cat.message], name, level, owner, names)
+    local msg   = Format(PickLine(cat.message), name, level, owner, names)
     local delay = ClampDelay(GzLevelUpDB[cat.delay])
     if delay > 0 then
         C_Timer.After(delay, function() SendNow(msg) end)
@@ -930,7 +1006,7 @@ local function SendReply(session)
     if not GzLevelUpDB.enabled or not GzLevelUpDB.autoReplyEnabled then return end
     -- SendNow re-checks the channel (the group may have changed while we
     -- collected) and holds the reply back during a chat lockdown.
-    SendNow(FormatReply(GzLevelUpDB.replyMessage, reply.names))
+    SendNow(FormatReply(PickLine("replyMessage"), reply.names))
 end
 
 -- Opens the listening window after my own level-up. Deliberately independent
@@ -1080,7 +1156,7 @@ local function SendGuildReply(session)
     guildReply.names, guildReply.seen = {}, {}
     if #names == 0 then return end
     if not GzLevelUpDB.enabled or not GzLevelUpDB.guildReplyEnabled then return end
-    SendNow(FormatReply(GzLevelUpDB.guildReplyMessage, names), true)
+    SendNow(FormatReply(PickLine("guildReplyMessage"), names), true)
 end
 
 -- A system message: remember who came online, and when.
@@ -1412,6 +1488,7 @@ local NOT_IN_PROFILE = {
 }
 
 local ReloadConfigUI -- set by BuildConfig, once the window exists
+local RefreshMessageUI -- the same, for just the message fields
 
 local function CopySettings(from, into)
     for k, v in pairs(from) do
@@ -2917,6 +2994,66 @@ local function StateText(v)
     return v and L.STATE_ON or L.STATE_OFF
 end
 
+-- The commands that set a message, and the setting each of them writes.
+-- `set`/`current` are the lines they print; the ones without their own fall
+-- back to "<command> = <text>".
+local MESSAGE_COMMAND = {
+    msg          = { key = "message",     set = "MESSAGE_SET",      current = "MESSAGE_CURRENT" },
+    selfmsg      = { key = "selfMessage", set = "SELF_MESSAGE_SET", current = "SELF_MESSAGE_CURRENT" },
+    petmsg       = { key = "petMessage",  set = "PET_MESSAGE_SET",  current = "PET_MESSAGE_CURRENT" },
+    replymsg     = { key = "replyMessage" },
+    guildmsg     = { key = "guildReplyMessage" },
+    deathmsg     = { key = "deathMessage" },
+    selfdeathmsg = { key = "selfDeathMessage" },
+    wipemsg      = { key = "wipeMessage" },
+    rezmsg       = { key = "rezMessage" },
+    selfrezmsg   = { key = "selfRezMessage" },
+}
+
+-- "/gz <cmd> <text>" replaces the whole list with that one message,
+-- "/gz <cmd> add <text>" puts it at the end, and "/gz <cmd>" alone lists what
+-- is there.
+local function MessageCommand(cmd, rest)
+    local entry = MESSAGE_COMMAND[cmd]
+    local key = entry.key
+    local verb, text = rest:match("^(%S*)%s*(.*)$")
+
+    -- "add" with nothing after it only shows the list: setting the message to
+    -- the word "add" is surely not what anybody meant.
+    if verb:lower() == "add" and text == "" then rest = "" end
+
+    if verb:lower() == "add" and text ~= "" then
+        local lines = MessageLines(GzLevelUpDB[key])
+        lines[#lines + 1] = text
+        GzLevelUpDB[key] = JoinLines(lines)
+        print(PREFIX .. L.MESSAGE_ADDED:format(cmd, text, #lines))
+    elseif rest ~= "" then
+        GzLevelUpDB[key] = rest
+        if entry.set then
+            print(PREFIX .. L[entry.set]:format(rest))
+        else
+            print(PREFIX .. L.DEATH_MESSAGE_SET:format(cmd, rest))
+        end
+    else
+        local lines = MessageLines(GzLevelUpDB[key])
+        if #lines < 2 then
+            local only = lines[1] or ""
+            if entry.current then
+                print(PREFIX .. L[entry.current]:format(only))
+            else
+                print(PREFIX .. L.DEATH_MESSAGE_CURRENT:format(cmd, only))
+            end
+        else
+            local mode = GzLevelUpDB[key .. "Random"] and L.LIST_MODE_RANDOM or L.LIST_MODE_ORDER
+            print(PREFIX .. L.MESSAGE_LIST:format(cmd, #lines, mode))
+            for i, line in ipairs(lines) do
+                print(("  %d. %s"):format(i, line))
+            end
+        end
+    end
+    if RefreshMessageUI then RefreshMessageUI() end
+end
+
 SLASH_GZLEVELUP1 = "/gz"
 SlashCmdList.GZLEVELUP = function(msg)
     msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -2940,13 +3077,6 @@ SlashCmdList.GZLEVELUP = function(msg)
         if GzLevelUpDB.guildReplyEnabled and GuildNotifyOff() then
             print(PREFIX .. L.GUILD_NOTIFY_OFF)
         end
-    elseif cmd == "guildmsg" then
-        if rest ~= "" then
-            GzLevelUpDB.guildReplyMessage = rest
-            print(PREFIX .. L.DEATH_MESSAGE_SET:format(cmd, rest))
-        else
-            print(PREFIX .. L.DEATH_MESSAGE_CURRENT:format(cmd, GzLevelUpDB.guildReplyMessage))
-        end
     elseif cmd == "raid" then
         GzLevelUpDB.useRaidChat = not GzLevelUpDB.useRaidChat
         print(PREFIX .. L.USE_RAID_SET:format(tostring(GzLevelUpDB.useRaidChat)))
@@ -2956,30 +3086,9 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "self" then
         GzLevelUpDB.includeSelf = not GzLevelUpDB.includeSelf
         print(PREFIX .. L.INCLUDE_SELF_SET:format(tostring(GzLevelUpDB.includeSelf)))
-    elseif cmd == "msg" then
-        if rest ~= "" then
-            GzLevelUpDB.message = rest
-            print(PREFIX .. L.MESSAGE_SET:format(rest))
-        else
-            print(PREFIX .. L.MESSAGE_CURRENT:format(GzLevelUpDB.message))
-        end
-    elseif cmd == "selfmsg" then
-        if rest ~= "" then
-            GzLevelUpDB.selfMessage = rest
-            print(PREFIX .. L.SELF_MESSAGE_SET:format(rest))
-        else
-            print(PREFIX .. L.SELF_MESSAGE_CURRENT:format(GzLevelUpDB.selfMessage))
-        end
     elseif cmd == "pets" then
         GzLevelUpDB.includePets = not GzLevelUpDB.includePets
         print(PREFIX .. L.INCLUDE_PETS_SET:format(tostring(GzLevelUpDB.includePets)))
-    elseif cmd == "petmsg" then
-        if rest ~= "" then
-            GzLevelUpDB.petMessage = rest
-            print(PREFIX .. L.PET_MESSAGE_SET:format(rest))
-        else
-            print(PREFIX .. L.PET_MESSAGE_CURRENT:format(GzLevelUpDB.petMessage))
-        end
     elseif cmd == "death" then
         GzLevelUpDB.announceDeaths = not GzLevelUpDB.announceDeaths
         print(PREFIX .. L.DEATH_SET:format(tostring(GzLevelUpDB.announceDeaths)))
@@ -2995,19 +3104,8 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "selfrez" then
         GzLevelUpDB.announceSelfRez = not GzLevelUpDB.announceSelfRez
         print(PREFIX .. L.SELF_REZ_SET:format(tostring(GzLevelUpDB.announceSelfRez)))
-    elseif cmd == "deathmsg" or cmd == "selfdeathmsg" or cmd == "wipemsg"
-        or cmd == "rezmsg" or cmd == "selfrezmsg" then
-        local key = (cmd == "deathmsg" and "deathMessage")
-                 or (cmd == "selfdeathmsg" and "selfDeathMessage")
-                 or (cmd == "rezmsg" and "rezMessage")
-                 or (cmd == "selfrezmsg" and "selfRezMessage")
-                 or "wipeMessage"
-        if rest ~= "" then
-            GzLevelUpDB[key] = rest
-            print(PREFIX .. L.DEATH_MESSAGE_SET:format(cmd, rest))
-        else
-            print(PREFIX .. L.DEATH_MESSAGE_CURRENT:format(cmd, GzLevelUpDB[key]))
-        end
+    elseif MESSAGE_COMMAND[cmd] then
+        MessageCommand(cmd, rest)
     elseif cmd == "delay" then
         -- "/gz delay <sec>" sets them all; "/gz delay <category> <sec>" one.
         local who, value = rest:match("^(%S*)%s*(.*)$")
@@ -3094,6 +3192,7 @@ SlashCmdList.GZLEVELUP = function(msg)
             print(PREFIX .. L.SCALE_SET:format(math.floor(ClampScale(GzLevelUpDB.quickPanelScale) * 100 + 0.5)))
         end
     elseif cmd == "test" then
+        -- Every line of a list is shown, so all of them can be checked at once.
         local me    = UnitName("player")
         local level = (UnitLevel("player") or 1) + 1
         for _, kind in ipairs(CATEGORY_ORDER) do
@@ -3103,7 +3202,9 @@ SlashCmdList.GZLEVELUP = function(msg)
                 if kind == "pet" then
                     name, owner = UnitName("pet") or L.PET, me
                 end
-                print(PREFIX .. L.PREVIEW_PREFIX .. Format(GzLevelUpDB[cat.message], name, level, owner))
+                for _, line in ipairs(MessageLines(GzLevelUpDB[cat.message])) do
+                    print(PREFIX .. L.PREVIEW_PREFIX .. Format(line, name, level, owner))
+                end
             end
         end
         -- The death lines use two sample names, so {names}/{count} are visible.
@@ -3116,8 +3217,10 @@ SlashCmdList.GZLEVELUP = function(msg)
         }) do
             local cat, names = entry[1], entry[2]
             if GzLevelUpDB[cat.enabled] then
-                print(PREFIX .. L.PREVIEW_PREFIX
-                    .. Format(GzLevelUpDB[cat.message], names[1], UnitLevel("player"), nil, names))
+                for _, line in ipairs(MessageLines(GzLevelUpDB[cat.message])) do
+                    print(PREFIX .. L.PREVIEW_PREFIX
+                        .. Format(line, names[1], UnitLevel("player"), nil, names))
+                end
             end
         end
     else
@@ -3127,12 +3230,14 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_MSG)
         print(L.HELP_SELFMSG)
         print(L.HELP_PETMSG)
+        print(L.HELP_MSG_ADD)
         print(L.HELP_DELAY)
         print(L.HELP_DELAY_ONE)
         print(L.HELP_PANEL)
         print(L.HELP_MINIMAP:format(tostring(GzLevelUpDB.minimapEnabled)))
         print(L.HELP_SCALE)
         print(L.HELP_REPLY:format(tostring(GzLevelUpDB.autoReplyEnabled)))
+        print(L.HELP_REPLYMSG)
         print(L.HELP_GUILD:format(tostring(GzLevelUpDB.guildReplyEnabled)))
         print(L.HELP_GUILDMSG)
         print(L.HELP_DEATH:format(tostring(GzLevelUpDB.announceDeaths)))
