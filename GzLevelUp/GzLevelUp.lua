@@ -1887,12 +1887,15 @@ local function CreateListEditor(parent)
     local f = CreateFrame("Frame", "GzLevelUpListEditor", parent, "BackdropTemplate")
     f:SetSize(460, 310)
     f:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    -- Solid, unlike the other windows: the config window right behind it
+    -- would otherwise shine through and make the text hard to read.
     f:SetBackdrop({
-        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        bgFile   = WHITE,
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
+        tile = false, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 },
     })
+    f:SetBackdropColor(0.05, 0.05, 0.05, 1)
     f:SetFrameStrata("FULLSCREEN_DIALOG") -- above the config window
     f:SetToplevel(true)
     f:EnableMouse(true)
