@@ -1584,5 +1584,40 @@ StaticPopupDialogs["GZLEVELUP_RESET"].OnAccept()
 check("and so does restoring the defaults", GzLevelUpDB.language, "deDE")
 check("which did reset the rest", GzLevelUpDB.message, "Gz {name}!")
 
+section("message lists: the editor window")
+startAs("enUS", nil)
+local editor = GzLevelUpListEditor
+GzLevelUpDB.replyMessage = "ty {names}!\nthx {name}"
+GzLevelUpDB.replyMessageRandom = false
+
+GzLevelUpReplyListButton:GetScript("OnClick")()
+check("the button opens the editor", editor:IsShown(), true)
+check("with one message per line", editor.edit:GetText(), "ty {names}!\nthx {name}")
+check("and the way they are picked", editor.orderCheck:GetChecked(), true)
+check("as one choice of two", editor.randomCheck:GetChecked(), false)
+
+editor.edit:SetText("  danke {name}  \n\nty {names}!\n")
+editor.randomCheck:GetScript("OnClick")(editor.randomCheck)
+check("the other mode can be picked", editor.orderCheck:GetChecked(), false)
+editor.Save()
+check("saving stores the tidied list", GzLevelUpDB.replyMessage, "danke {name}\nty {names}!")
+check("and the mode", GzLevelUpDB.replyMessageRandom, true)
+check("and closes the editor", editor:IsShown(), false)
+
+GzLevelUpGuildListButton:GetScript("OnClick")()
+editor.edit:SetText("something else entirely")
+editor:Hide() -- cancel, escape and closing the window all end up here
+check("closing without saving keeps the list", GzLevelUpDB.guildReplyMessage, "Hi {names}!")
+
+-- The tab only shows the lists; writing back what it shows would squash
+-- every list into a single line.
+GzLevelUpConfigFrame:GetScript("OnHide")()
+check("closing the window leaves the lists alone", GzLevelUpDB.replyMessage,
+      "danke {name}\nty {names}!")
+
+GzLevelUpReplyListButton:GetScript("OnClick")()
+SlashCmdList.GZLEVELUP("profile new Raid")
+check("switching the settings closes the editor", editor:IsShown(), false)
+
 print(string.format("\n%d checks, %d failed", total, fails))
 os.exit(fails == 0 and 0 or 1)
