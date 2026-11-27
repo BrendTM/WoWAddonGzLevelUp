@@ -4,6 +4,32 @@ Notable changes per release. The section for a version is used verbatim as the
 GitHub release body and can be pasted into the CurseForge changelog field, so
 it is written for players rather than for the diff.
 
+## 1.6
+
+### New
+
+- **Message lists.** Every message can now hold several variants instead of
+  just one — the level-up messages, the death and resurrection lines, and both
+  auto replies. Each time, one of them is sent.
+  - Pick per message whether that happens **at random** (never the same one
+    twice in a row) or **in order**, one after the other. In order, every
+    character remembers where it left off.
+  - The **Edit...** button next to a message — or a click into the field —
+    opens a window with one message per line. Nothing changes until you save.
+  - The preview says which message comes next and how many there are.
+  - Your current messages carry over unchanged, as lists of one.
+- **Message commands take additions.** `/gz msg <text>` still replaces the
+  message; `/gz msg add <text>` adds one to the list instead, and `/gz msg`
+  on its own lists them. This works for every message command.
+- **`/gz replymsg <text>`** sets the auto reply after your own level-up, which
+  had no command so far.
+- `/gz test` shows every message of a list.
+
+### Changed
+
+- A message left empty is no longer sent as an empty line — it simply stays
+  quiet.
+
 ## 1.5
 
 ### New
