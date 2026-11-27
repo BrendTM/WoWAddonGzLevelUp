@@ -66,6 +66,24 @@ local defaults = {
     -- (deliberately not in defaults: "no entry" means "centered").
 }
 
+-- Every setting that holds something to say. Each of them is a list: one
+-- message per line, and every time one of them is picked - at random, or one
+-- after the other. A line break is the natural separator, since no chat
+-- message can contain one, and it keeps the setting a plain string: whatever
+-- was saved before is simply a list with one entry.
+--
+-- Next to each one sits "<key>Random", which decides how the line is picked.
+local MESSAGE_KEYS = {
+    "message", "selfMessage", "petMessage",
+    "deathMessage", "selfDeathMessage", "wipeMessage",
+    "rezMessage", "selfRezMessage",
+    "replyMessage", "guildReplyMessage",
+}
+
+for _, key in ipairs(MESSAGE_KEYS) do
+    defaults[key .. "Random"] = true
+end
+
 -- Everything that differs between the three announcement categories, in one
 -- place: which DB keys hold its switch, its message template and its delay.
 local CATEGORY = {
@@ -268,6 +286,63 @@ local function Format(template, name, level, owner, names)
         :gsub("{name}", name or "?")
         :gsub("{level}", tostring(level or 0))
         :gsub("{owner}", owner or "?"))
+end
+
+-- A message setting split into its lines. Blank lines are dropped, and so is
+-- whitespace around a line - neither would make sense in chat.
+local function MessageLines(text)
+    local lines = {}
+    for raw in (text or ""):gmatch("[^\r\n]+") do
+        local line = raw:match("^%s*(.-)%s*$")
+        if line ~= "" then lines[#lines + 1] = line end
+    end
+    return lines
+end
+
+-- The form a list is stored in: its lines, one per line, nothing blank.
+local function JoinLines(lines)
+    return table.concat(lines, "\n")
+end
+
+-- Which line goes next, without using it up. In order, that is wherever the
+-- list stands; the position is kept per character, because it is about what
+-- this character said last. At random there is no "next", so the first line
+-- stands in for the list.
+local function NextLineIndex(key, count)
+    if count < 2 or GzLevelUpDB[key .. "Random"] then return 1 end
+    local next = GzLevelUpCharDB.messageNext and GzLevelUpCharDB.messageNext[key]
+    if type(next) ~= "number" or next < 1 or next > count then next = 1 end
+    return math.floor(next)
+end
+
+-- The line picked last at random, so the same one does not come twice in a
+-- row: with two or three lines a repeat would look like the addon got stuck.
+local lastRandom = {}
+
+-- Picks the line to send from a message setting and moves the list on.
+-- Returns "" for an empty list, which SendNow then keeps out of chat.
+local function PickLine(key)
+    local lines = MessageLines(GzLevelUpDB[key])
+    local count = #lines
+    if count == 0 then return "" end
+    if count == 1 then return lines[1] end
+
+    local index
+    if GzLevelUpDB[key .. "Random"] then
+        local last = lastRandom[key]
+        if last and last >= 1 and last <= count then
+            index = math.random(count - 1)
+            if index >= last then index = index + 1 end
+        else
+            index = math.random(count)
+        end
+        lastRandom[key] = index
+    else
+        index = NextLineIndex(key, count)
+        GzLevelUpCharDB.messageNext = GzLevelUpCharDB.messageNext or {}
+        GzLevelUpCharDB.messageNext[key] = index % count + 1
+    end
+    return lines[index]
 end
 
 -- "Brend-Realm" -> "Brend". Cross-realm names arrive with a realm suffix,
@@ -619,6 +694,7 @@ end
 -- moment of sending, since the group may have changed during a delay.
 function SendNow(msg, toGuild)
     if not GzLevelUpDB.enabled then return end
+    if msg == nil or msg == "" then return end -- an emptied list says nothing
     local channel
     if toGuild then
         channel = IsInGuild and IsInGuild() and "GUILD" or nil
@@ -637,7 +713,7 @@ end
 -- The placeholders are substituted NOW (at the moment of the event), only the
 -- sending waits.
 local function Dispatch(cat, name, level, owner, names)
-    local msg   = Format(GzLevelUpDB[cat.message], name, level, owner, names)
+    local msg   = Format(PickLine(cat.message), name, level, owner, names)
     local delay = ClampDelay(GzLevelUpDB[cat.delay])
     if delay > 0 then
         C_Timer.After(delay, function() SendNow(msg) end)
@@ -930,7 +1006,7 @@ local function SendReply(session)
     if not GzLevelUpDB.enabled or not GzLevelUpDB.autoReplyEnabled then return end
     -- SendNow re-checks the channel (the group may have changed while we
     -- collected) and holds the reply back during a chat lockdown.
-    SendNow(FormatReply(GzLevelUpDB.replyMessage, reply.names))
+    SendNow(FormatReply(PickLine("replyMessage"), reply.names))
 end
 
 -- Opens the listening window after my own level-up. Deliberately independent
@@ -1080,7 +1156,7 @@ local function SendGuildReply(session)
     guildReply.names, guildReply.seen = {}, {}
     if #names == 0 then return end
     if not GzLevelUpDB.enabled or not GzLevelUpDB.guildReplyEnabled then return end
-    SendNow(FormatReply(GzLevelUpDB.guildReplyMessage, names), true)
+    SendNow(FormatReply(PickLine("guildReplyMessage"), names), true)
 end
 
 -- A system message: remember who came online, and when.
@@ -1412,6 +1488,7 @@ local NOT_IN_PROFILE = {
 }
 
 local ReloadConfigUI -- set by BuildConfig, once the window exists
+local RefreshMessageUI -- the same, for just the message fields
 
 local function CopySettings(from, into)
     for k, v in pairs(from) do
@@ -1625,6 +1702,53 @@ local function CreateCheck(parent, label, name)
     return cb
 end
 
+-- The width of the button that opens a message list.
+local LIST_BUTTON_WIDTH = 100
+
+-- A message list as it sits on a tab: the messages in a single line, and a
+-- button that opens the editor. The line cannot be typed into - a list does
+-- not fit into one line - so clicking it opens the editor as well. Which list
+-- it shows and what the click does is wired up by the window. `name` is
+-- optional and makes the button a global.
+local function CreateListField(parent, y, name)
+    local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    edit:SetHeight(26)
+    edit:SetPoint("TOPLEFT", 36, y)
+    edit:SetPoint("TOPRIGHT", -(36 + LIST_BUTTON_WIDTH), y)
+    edit:SetAutoFocus(false)
+    edit:SetMaxLetters(0) -- the whole list, however long
+
+    local button = CreateFrame("Button", name, parent, "UIPanelButtonTemplate")
+    button:SetSize(LIST_BUTTON_WIDTH, 22)
+    button:SetPoint("TOPRIGHT", -32, y - 2)
+    button:SetText(L.BTN_EDIT_LIST)
+    return edit, button
+end
+
+-- Puts a list into its one-line field, the messages side by side.
+local function ShowMessageList(edit, key)
+    edit:SetText(table.concat(MessageLines(GzLevelUpDB[key]), "  \194\183  "))
+    edit:SetCursorPosition(0)
+end
+
+-- The preview line under a list: the message that goes next, rendered by
+-- `render`. With more than one message it also says how many there are and
+-- how the next one is picked.
+local function ListPreview(key, render)
+    local lines = MessageLines(GzLevelUpDB[key])
+    local count = #lines
+    local index = NextLineIndex(key, count)
+    local label = L.PREVIEW_LABEL
+    if count > 1 then
+        if GzLevelUpDB[key .. "Random"] then
+            label = L.LIST_PREVIEW_RANDOM:format(count)
+        else
+            label = L.LIST_PREVIEW_ORDER:format(index, count)
+        end
+    end
+    return label .. " \"" .. render(lines[index] or "") .. "\""
+end
+
 -- One announcement category as a three-line block:
 --   [x] <label>                              [ delay ]
 --   [ message template                                ]
@@ -1646,19 +1770,14 @@ local function CreateCategoryBlock(parent, y, labelText)
 
     -- Anchored on both sides instead of a fixed width, so the whole tab
     -- follows the window width.
-    local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
-    edit:SetHeight(26)
-    edit:SetPoint("TOPLEFT", 36, y - 28)
-    edit:SetPoint("TOPRIGHT", -32, y - 28)
-    edit:SetAutoFocus(false)
-    edit:SetMaxLetters(240)
+    local edit, listBtn = CreateListField(parent, y - 28)
 
     local preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     preview:SetPoint("TOPLEFT", 38, y - 59)
     preview:SetPoint("TOPRIGHT", -34, y - 59)
     preview:SetJustifyH("LEFT")
 
-    return { cb = cb, delay = delay, edit = edit, preview = preview }
+    return { cb = cb, delay = delay, edit = edit, listBtn = listBtn, preview = preview }
 end
 
 -- Reads a field from the .toc, so version/author/links have a single source.
@@ -1723,6 +1842,7 @@ end
 -- Greys out a block's fields while its category is switched off. The checkbox
 -- itself stays usable, otherwise it could never be switched back on.
 local function SetBlockEnabled(block, on)
+    block.listBtn:SetEnabled(on)
     for _, e in ipairs({ block.edit, block.delay }) do
         e:EnableMouse(on)
         if on then
@@ -1757,6 +1877,158 @@ local function CreateHelpIcon(parent, title, body)
     end)
     h:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return h
+end
+
+-- The window a message list is edited in: one message per line, and how the
+-- next one is picked. It belongs to the config window, so it closes with it,
+-- and nothing is kept unless it is saved - Cancel, Escape or closing the
+-- config window all leave the list as it was.
+local function CreateListEditor(parent)
+    local f = CreateFrame("Frame", "GzLevelUpListEditor", parent, "BackdropTemplate")
+    f:SetSize(460, 310)
+    f:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    -- Solid, unlike the other windows: the config window right behind it
+    -- would otherwise shine through and make the text hard to read.
+    f:SetBackdrop({
+        bgFile   = WHITE,
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = false, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    f:SetBackdropColor(0.05, 0.05, 0.05, 1)
+    f:SetFrameStrata("FULLSCREEN_DIALOG") -- above the config window
+    f:SetToplevel(true)
+    f:EnableMouse(true)
+    f:Hide()
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", 24, -20)
+    title:SetPoint("TOPRIGHT", -48, -20)
+    title:SetJustifyH("LEFT")
+
+    -- The placeholders differ from tab to tab, so the tooltip is whatever the
+    -- tab the list came from explains.
+    local help = CreateFrame("Frame", nil, f)
+    help:SetSize(20, 18)
+    help:SetPoint("TOPRIGHT", -22, -18)
+    help:EnableMouse(true)
+    local helpText = help:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    helpText:SetPoint("CENTER")
+    helpText:SetText("|cff9d9d9d(?)|r")
+    help:SetScript("OnEnter", function(self)
+        if not f.helpTitle then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(f.helpTitle)
+        GameTooltip:AddLine(f.helpBody, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    help:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hint:SetPoint("TOPLEFT", 24, -42)
+    hint:SetPoint("TOPRIGHT", -24, -42)
+    hint:SetJustifyH("LEFT")
+    hint:SetText(L.LIST_EDITOR_HINT)
+
+    -- The text area: a multi-line edit box scrolling inside a plain frame.
+    local box = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    box:SetPoint("TOPLEFT", 20, -60)
+    box:SetPoint("BOTTOMRIGHT", -20, 84)
+    box:SetBackdrop({
+        bgFile   = WHITE,
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 14,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    box:SetBackdropColor(0, 0, 0, 0.6)
+    box:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+
+    -- The template looks its scroll bar up by name on some clients.
+    local scroll = CreateFrame("ScrollFrame", "GzLevelUpListEditorScroll", box,
+                               "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 8, -8)
+    scroll:SetPoint("BOTTOMRIGHT", -28, 8)
+
+    local edit = CreateFrame("EditBox", nil, scroll)
+    edit:SetMultiLine(true)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject(ChatFontNormal)
+    edit:SetMaxLetters(0)
+    -- The box is 460 - 2 * 20 wide, minus the scroll frame's insets.
+    edit:SetWidth(460 - 40 - 36)
+    -- At least as tall as the visible area, so a click anywhere lands in it.
+    edit:SetHeight(310 - 60 - 84 - 16)
+    scroll:SetScrollChild(edit)
+
+    -- Keeps the cursor in view while typing past the bottom. These helpers
+    -- come with the scroll frame template; without them the box still works,
+    -- it just does not follow the cursor.
+    if ScrollingEdit_OnTextChanged and ScrollingEdit_OnCursorChanged and ScrollingEdit_OnUpdate then
+        edit:SetScript("OnTextChanged", function(self) ScrollingEdit_OnTextChanged(self, scroll) end)
+        edit:SetScript("OnCursorChanged", ScrollingEdit_OnCursorChanged)
+        edit:SetScript("OnUpdate", function(self, elapsed) ScrollingEdit_OnUpdate(self, elapsed, scroll) end)
+    end
+    scroll:EnableMouse(true)
+    scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
+    edit:SetScript("OnEscapePressed", function() f:Hide() end)
+
+    -- How the next message is picked: two checkboxes that act as one choice.
+    local modeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    modeLabel:SetPoint("BOTTOMLEFT", 26, 58)
+    modeLabel:SetText(L.LIST_MODE_LABEL .. ":")
+
+    local randomCB = CreateCheck(f, L.LIST_MODE_RANDOM)
+    randomCB:SetPoint("LEFT", modeLabel, "RIGHT", 10, 0)
+    local orderCB = CreateCheck(f, L.LIST_MODE_ORDER)
+    orderCB:SetPoint("LEFT", randomCB.label, "RIGHT", 16, 0)
+
+    local function SetRandom(on)
+        f.random = on and true or false
+        randomCB:SetChecked(f.random)
+        orderCB:SetChecked(not f.random)
+    end
+    randomCB:SetScript("OnClick", function() SetRandom(true) end)
+    orderCB:SetScript("OnClick", function() SetRandom(false) end)
+
+    local save = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    save:SetSize(110, 22)
+    save:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -6, 20)
+    save:SetText(L.BTN_SAVE)
+
+    local cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    cancel:SetSize(110, 22)
+    cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 6, 20)
+    cancel:SetText(L.BTN_CANCEL)
+
+    -- Stored the way every list is: blank lines and stray spaces go.
+    local function Save()
+        if not f.key then return end
+        GzLevelUpDB[f.key] = JoinLines(MessageLines(edit:GetText()))
+        GzLevelUpDB[f.key .. "Random"] = f.random
+        f:Hide()
+        if f.onSaved then f.onSaved() end
+    end
+    save:SetScript("OnClick", Save)
+    cancel:SetScript("OnClick", function() f:Hide() end)
+
+    -- Opens the editor on the list stored under `key`. `onSaved` runs after
+    -- a save, so the tab can show the new list.
+    function f.Open(key, titleText, helpTitle, helpBody, onSaved)
+        f.key, f.onSaved = key, onSaved
+        f.helpTitle, f.helpBody = helpTitle, helpBody
+        title:SetText(titleText or "")
+        edit:SetText(JoinLines(MessageLines(GzLevelUpDB[key])))
+        SetRandom(GzLevelUpDB[key .. "Random"])
+        f:Show()
+        edit:SetFocus()
+        edit:SetCursorPosition(0)
+    end
+
+    f:SetScript("OnHide", function() edit:ClearFocus() end)
+
+    -- Reachable for the test suite, which cannot type or click.
+    f.edit, f.randomCheck, f.orderCheck, f.Save = edit, randomCB, orderCB, Save
+    return f
 end
 
 -- Small helper: a flat tab button. The active one is underlined.
@@ -1958,10 +2230,21 @@ local function BuildConfig()
 
     -- A message field with its label above and the live preview below, the
     -- way both replies show theirs.
-    local function CreateMessageField(parent, y, labelText, withPreview)
+    local function CreateMessageField(parent, y, labelText, withPreview, buttonName)
         local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         label:SetPoint("TOPLEFT", 36, y)
         label:SetText(labelText)
+
+        -- The message fields are lists and get their editor button; the
+        -- trigger words stay a plain line to type into.
+        if withPreview then
+            local edit, button = CreateListField(parent, y - 20, buttonName)
+            local preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            preview:SetPoint("TOPLEFT", 38, y - 51)
+            preview:SetPoint("TOPRIGHT", -34, y - 51)
+            preview:SetJustifyH("LEFT")
+            return label, edit, preview, button
+        end
 
         local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
         edit:SetHeight(26)
@@ -1969,15 +2252,7 @@ local function BuildConfig()
         edit:SetPoint("TOPRIGHT", -32, y - 20)
         edit:SetAutoFocus(false)
         edit:SetMaxLetters(240)
-
-        local preview
-        if withPreview then
-            preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            preview:SetPoint("TOPLEFT", 38, y - 51)
-            preview:SetPoint("TOPRIGHT", -34, y - 51)
-            preview:SetJustifyH("LEFT")
-        end
-        return label, edit, preview
+        return label, edit
     end
 
     -- === Tab 2: auto reply ================================================
@@ -1997,8 +2272,8 @@ local function BuildConfig()
     local replyHelp = CreateHelpIcon(levelSub, L.REPLY_HELP_TITLE, L.REPLY_HELP)
     replyHelp:SetPoint("TOPRIGHT", replyPage, "TOPRIGHT", -24, 2)
 
-    local replyMsgLabel, replyEdit, replyPreview =
-        CreateMessageField(levelSub, -36, L.REPLY_MESSAGE_LABEL, true)
+    local replyMsgLabel, replyEdit, replyPreview, replyListBtn =
+        CreateMessageField(levelSub, -36, L.REPLY_MESSAGE_LABEL, true, "GzLevelUpReplyListButton")
     local triggerLabel, triggerEdit =
         CreateMessageField(levelSub, -114, L.REPLY_TRIGGERS_LABEL)
 
@@ -2006,6 +2281,7 @@ local function BuildConfig()
     local windowRow  = CreateSecondsRow(levelSub, -200, L.REPLY_WINDOW_LABEL)
 
     local function SetReplyEnabled(on)
+        replyListBtn:SetEnabled(on)
         SetFieldsEnabled(on,
             { replyEdit, triggerEdit, collectRow.edit, windowRow.edit },
             { replyMsgLabel, triggerLabel, collectRow.label, windowRow.label },
@@ -2026,8 +2302,8 @@ local function BuildConfig()
     local guildHelp = CreateHelpIcon(guildSub, L.GUILD_HELP_TITLE, L.GUILD_HELP)
     guildHelp:SetPoint("TOPRIGHT", replyPage, "TOPRIGHT", -24, 2)
 
-    local guildMsgLabel, guildEdit, guildPreview =
-        CreateMessageField(guildSub, -36, L.REPLY_MESSAGE_LABEL, true)
+    local guildMsgLabel, guildEdit, guildPreview, guildListBtn =
+        CreateMessageField(guildSub, -36, L.REPLY_MESSAGE_LABEL, true, "GzLevelUpGuildListButton")
     local guildTrigLabel, guildTrigEdit =
         CreateMessageField(guildSub, -114, L.GUILD_TRIGGERS_LABEL)
 
@@ -2083,6 +2359,7 @@ local function BuildConfig()
     end)
 
     local function SetGuildEnabled(on)
+        guildListBtn:SetEnabled(on)
         SetFieldsEnabled(on,
             { guildEdit, guildTrigEdit, guildWindowRow.edit, guildCollectRow.edit,
               guildCooldownRow.edit },
@@ -2144,7 +2421,7 @@ local function BuildConfig()
     local function AddBlocks(page, entries)
         for i, entry in ipairs(entries) do
             local block = CreateCategoryBlock(page, -18 - (i - 1) * BLOCK_HEIGHT, entry.label)
-            block.cat = entry.cat
+            block.cat, block.label = entry.cat, entry.label
             block.meName, block.oneName = entry.meName, entry.oneName
             deathBlocks[#deathBlocks + 1] = block
         end
@@ -2540,16 +2817,15 @@ local function BuildConfig()
             if block.kind == "pet" then
                 name, owner = UnitName("pet") or L.PET, me
             end
-            block.preview:SetText(L.PREVIEW_LABEL .. " \""
-                .. Format(block.edit:GetText(), name, level, owner) .. "\"")
+            block.preview:SetText(ListPreview(CATEGORY[block.kind].message,
+                function(line) return Format(line, name, level, owner) end))
         end
         -- Reply preview: pretend two people congratulated us.
         local sample = { L.PREVIEW_NAME_1, L.PREVIEW_NAME_2 }
-        replyPreview:SetText(L.PREVIEW_LABEL .. " \""
-            .. FormatReply(replyEdit:GetText(), sample) .. "\"")
+        local function sampleReply(line) return FormatReply(line, sample) end
+        replyPreview:SetText(ListPreview("replyMessage", sampleReply))
         -- Same for the guild: two members came online and said hello.
-        guildPreview:SetText(L.PREVIEW_LABEL .. " \""
-            .. FormatReply(guildEdit:GetText(), sample) .. "\"")
+        guildPreview:SetText(ListPreview("guildReplyMessage", sampleReply))
 
         -- Death preview: two names for the group and the wipe line, so {names}
         -- and {count} actually show what they do. My own death is about me, and
@@ -2562,32 +2838,30 @@ local function BuildConfig()
             elseif block.oneName then
                 names = { L.PREVIEW_NAME_1 }
             end
-            block.preview:SetText(L.PREVIEW_LABEL .. " \""
-                .. Format(block.edit:GetText(), names[1], lvl, nil, names) .. "\"")
+            block.preview:SetText(ListPreview(block.cat.message,
+                function(line) return Format(line, names[1], lvl, nil, names) end))
         end
     end
 
     -- === Saving ============================================================
     -- Everything is saved automatically: checkboxes and the slider write
     -- through on change, text fields when they lose focus or the window closes.
+    -- The message lists are the exception: they only change in their editor,
+    -- which saves them itself.
     local function Commit()
         for _, block in ipairs(blocks) do
             local cat = CATEGORY[block.kind]
-            GzLevelUpDB[cat.message] = block.edit:GetText()
             GzLevelUpDB[cat.delay]   = ClampDelay(block.delay:GetText())
         end
         for _, block in ipairs(deathBlocks) do
-            GzLevelUpDB[block.cat.message] = block.edit:GetText()
             GzLevelUpDB[block.cat.delay]   = ClampDelay(block.delay:GetText())
         end
         GzLevelUpDB.deathCollect    = ClampDelay(collectDeathRow.edit:GetText())
         GzLevelUpDB.deathWipeLimit  = ClampCount(wipeLimitRow.edit:GetText())
         GzLevelUpDB.rezCollect      = ClampDelay(collectRezRow.edit:GetText())
-        GzLevelUpDB.replyMessage    = replyEdit:GetText()
         GzLevelUpDB.replyTriggers   = triggerEdit:GetText()
         GzLevelUpDB.replyCollect    = ClampDelay(collectRow.edit:GetText())
         GzLevelUpDB.replyWindow     = ClampDelay(windowRow.edit:GetText())
-        GzLevelUpDB.guildReplyMessage  = guildEdit:GetText()
         GzLevelUpDB.guildReplyTriggers = guildTrigEdit:GetText()
         GzLevelUpDB.guildReplyWindow   = ClampTo(guildWindowRow.edit:GetText(), MAX_GUILD_WINDOW)
         GzLevelUpDB.guildReplyCollect  = ClampDelay(guildCollectRow.edit:GetText())
@@ -2599,11 +2873,6 @@ local function BuildConfig()
     end
 
     local function WireBlock(block, cat)
-        block.edit:SetScript("OnTextChanged", UpdatePreview)
-        block.edit:SetScript("OnEditFocusLost", Commit)
-        block.edit:SetScript("OnEnterPressed", block.edit.ClearFocus)
-        block.edit:SetScript("OnEscapePressed", block.edit.ClearFocus)
-
         -- Delay fields additionally normalise their text to the clamped value.
         block.delay:SetScript("OnEditFocusLost", function(self)
             Commit()
@@ -2617,10 +2886,47 @@ local function BuildConfig()
     for _, block in ipairs(blocks)      do WireBlock(block, CATEGORY[block.kind]) end
     for _, block in ipairs(deathBlocks) do WireBlock(block, block.cat)            end
 
-    replyEdit:SetScript("OnTextChanged", UpdatePreview)
-    guildEdit:SetScript("OnTextChanged", UpdatePreview)
+    -- === Message lists =====================================================
+    -- Every message field opens the list editor, from its button or from a
+    -- click into the field. Whatever was saved there shows up on the tab and
+    -- in its preview straight away.
+    local listEditor = CreateListEditor(frame)
+    local listFields = {}
 
-    local focusEdits = { replyEdit, triggerEdit, guildEdit, guildTrigEdit }
+    local function WireList(edit, button, key, title, helpTitle, helpBody)
+        listFields[#listFields + 1] = { edit = edit, key = key }
+        local function Open()
+            listEditor.Open(key, title, helpTitle, helpBody, RefreshMessageUI)
+        end
+        button:SetScript("OnClick", Open)
+        edit:SetScript("OnEditFocusGained", function(self)
+            self:ClearFocus()
+            Open()
+        end)
+    end
+
+    for _, block in ipairs(blocks) do
+        WireList(block.edit, block.listBtn, CATEGORY[block.kind].message,
+                 BLOCK_LABEL[block.kind], L.PLACEHOLDER_TITLE, L.PLACEHOLDER_HELP)
+    end
+    for _, block in ipairs(deathBlocks) do
+        WireList(block.edit, block.listBtn, block.cat.message,
+                 block.label, L.DEATH_HELP_TITLE, L.DEATH_HELP)
+    end
+    WireList(replyEdit, replyListBtn, "replyMessage",
+             L.OPT_AUTOREPLY, L.REPLY_HELP_TITLE, L.REPLY_HELP)
+    WireList(guildEdit, guildListBtn, "guildReplyMessage",
+             L.OPT_GUILDREPLY, L.GUILD_HELP_TITLE, L.GUILD_HELP)
+
+    -- Also called by the message commands, so an open window keeps up.
+    RefreshMessageUI = function()
+        for _, field in ipairs(listFields) do
+            ShowMessageList(field.edit, field.key)
+        end
+        UpdatePreview()
+    end
+
+    local focusEdits = { triggerEdit, guildTrigEdit }
     for _, e in ipairs(quickEdits) do focusEdits[#focusEdits + 1] = e end
     for _, e in ipairs(focusEdits) do
         e:SetScript("OnEditFocusLost", Commit)
@@ -2655,8 +2961,6 @@ local function BuildConfig()
         for _, block in ipairs(blocks) do
             local cat = CATEGORY[block.kind]
             local on  = GzLevelUpDB[cat.enabled] and true or false
-            block.edit:SetText(GzLevelUpDB[cat.message])
-            block.edit:SetCursorPosition(0)
             block.delay:SetText(tostring(ClampDelay(GzLevelUpDB[cat.delay])))
             block.delay:SetCursorPosition(0)
             block.cb:SetChecked(on)
@@ -2664,8 +2968,6 @@ local function BuildConfig()
         end
         for _, block in ipairs(deathBlocks) do
             local on = GzLevelUpDB[block.cat.enabled] and true or false
-            block.edit:SetText(GzLevelUpDB[block.cat.message])
-            block.edit:SetCursorPosition(0)
             block.delay:SetText(tostring(ClampDelay(GzLevelUpDB[block.cat.delay])))
             block.delay:SetCursorPosition(0)
             block.cb:SetChecked(on)
@@ -2684,8 +2986,6 @@ local function BuildConfig()
         minimapCB:SetChecked(GzLevelUpDB.minimapEnabled)
 
         replyCB:SetChecked(GzLevelUpDB.autoReplyEnabled)
-        replyEdit:SetText(GzLevelUpDB.replyMessage)
-        replyEdit:SetCursorPosition(0)
         triggerEdit:SetText(GzLevelUpDB.replyTriggers)
         triggerEdit:SetCursorPosition(0)
         collectRow.edit:SetText(tostring(ClampDelay(GzLevelUpDB.replyCollect)))
@@ -2695,8 +2995,6 @@ local function BuildConfig()
         SetReplyEnabled(GzLevelUpDB.autoReplyEnabled)
 
         guildCB:SetChecked(GzLevelUpDB.guildReplyEnabled)
-        guildEdit:SetText(GzLevelUpDB.guildReplyMessage)
-        guildEdit:SetCursorPosition(0)
         guildTrigEdit:SetText(GzLevelUpDB.guildReplyTriggers)
         guildTrigEdit:SetCursorPosition(0)
         guildWindowRow.edit:SetText(tostring(ClampTo(GzLevelUpDB.guildReplyWindow, MAX_GUILD_WINDOW)))
@@ -2714,7 +3012,10 @@ local function BuildConfig()
         LayoutQuickEdits() -- fills the fields from the button list as it goes
         SetQuickEnabled(GzLevelUpDB.quickPanelEnabled)
         scaleSlider:SetValue(ClampScale(GzLevelUpDB.quickPanelScale))
-        UpdatePreview()
+        -- A list half-edited for the settings that were just replaced would
+        -- be saved into the wrong ones.
+        listEditor:Hide()
+        RefreshMessageUI() -- the lists, and the previews with them
     end
 
     -- === Settings profiles =================================================
@@ -2917,6 +3218,66 @@ local function StateText(v)
     return v and L.STATE_ON or L.STATE_OFF
 end
 
+-- The commands that set a message, and the setting each of them writes.
+-- `set`/`current` are the lines they print; the ones without their own fall
+-- back to "<command> = <text>".
+local MESSAGE_COMMAND = {
+    msg          = { key = "message",     set = "MESSAGE_SET",      current = "MESSAGE_CURRENT" },
+    selfmsg      = { key = "selfMessage", set = "SELF_MESSAGE_SET", current = "SELF_MESSAGE_CURRENT" },
+    petmsg       = { key = "petMessage",  set = "PET_MESSAGE_SET",  current = "PET_MESSAGE_CURRENT" },
+    replymsg     = { key = "replyMessage" },
+    guildmsg     = { key = "guildReplyMessage" },
+    deathmsg     = { key = "deathMessage" },
+    selfdeathmsg = { key = "selfDeathMessage" },
+    wipemsg      = { key = "wipeMessage" },
+    rezmsg       = { key = "rezMessage" },
+    selfrezmsg   = { key = "selfRezMessage" },
+}
+
+-- "/gz <cmd> <text>" replaces the whole list with that one message,
+-- "/gz <cmd> add <text>" puts it at the end, and "/gz <cmd>" alone lists what
+-- is there.
+local function MessageCommand(cmd, rest)
+    local entry = MESSAGE_COMMAND[cmd]
+    local key = entry.key
+    local verb, text = rest:match("^(%S*)%s*(.*)$")
+
+    -- "add" with nothing after it only shows the list: setting the message to
+    -- the word "add" is surely not what anybody meant.
+    if verb:lower() == "add" and text == "" then rest = "" end
+
+    if verb:lower() == "add" and text ~= "" then
+        local lines = MessageLines(GzLevelUpDB[key])
+        lines[#lines + 1] = text
+        GzLevelUpDB[key] = JoinLines(lines)
+        print(PREFIX .. L.MESSAGE_ADDED:format(cmd, text, #lines))
+    elseif rest ~= "" then
+        GzLevelUpDB[key] = rest
+        if entry.set then
+            print(PREFIX .. L[entry.set]:format(rest))
+        else
+            print(PREFIX .. L.DEATH_MESSAGE_SET:format(cmd, rest))
+        end
+    else
+        local lines = MessageLines(GzLevelUpDB[key])
+        if #lines < 2 then
+            local only = lines[1] or ""
+            if entry.current then
+                print(PREFIX .. L[entry.current]:format(only))
+            else
+                print(PREFIX .. L.DEATH_MESSAGE_CURRENT:format(cmd, only))
+            end
+        else
+            local mode = GzLevelUpDB[key .. "Random"] and L.LIST_MODE_RANDOM or L.LIST_MODE_ORDER
+            print(PREFIX .. L.MESSAGE_LIST:format(cmd, #lines, mode))
+            for i, line in ipairs(lines) do
+                print(("  %d. %s"):format(i, line))
+            end
+        end
+    end
+    if RefreshMessageUI then RefreshMessageUI() end
+end
+
 SLASH_GZLEVELUP1 = "/gz"
 SlashCmdList.GZLEVELUP = function(msg)
     msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -2940,13 +3301,6 @@ SlashCmdList.GZLEVELUP = function(msg)
         if GzLevelUpDB.guildReplyEnabled and GuildNotifyOff() then
             print(PREFIX .. L.GUILD_NOTIFY_OFF)
         end
-    elseif cmd == "guildmsg" then
-        if rest ~= "" then
-            GzLevelUpDB.guildReplyMessage = rest
-            print(PREFIX .. L.DEATH_MESSAGE_SET:format(cmd, rest))
-        else
-            print(PREFIX .. L.DEATH_MESSAGE_CURRENT:format(cmd, GzLevelUpDB.guildReplyMessage))
-        end
     elseif cmd == "raid" then
         GzLevelUpDB.useRaidChat = not GzLevelUpDB.useRaidChat
         print(PREFIX .. L.USE_RAID_SET:format(tostring(GzLevelUpDB.useRaidChat)))
@@ -2956,30 +3310,9 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "self" then
         GzLevelUpDB.includeSelf = not GzLevelUpDB.includeSelf
         print(PREFIX .. L.INCLUDE_SELF_SET:format(tostring(GzLevelUpDB.includeSelf)))
-    elseif cmd == "msg" then
-        if rest ~= "" then
-            GzLevelUpDB.message = rest
-            print(PREFIX .. L.MESSAGE_SET:format(rest))
-        else
-            print(PREFIX .. L.MESSAGE_CURRENT:format(GzLevelUpDB.message))
-        end
-    elseif cmd == "selfmsg" then
-        if rest ~= "" then
-            GzLevelUpDB.selfMessage = rest
-            print(PREFIX .. L.SELF_MESSAGE_SET:format(rest))
-        else
-            print(PREFIX .. L.SELF_MESSAGE_CURRENT:format(GzLevelUpDB.selfMessage))
-        end
     elseif cmd == "pets" then
         GzLevelUpDB.includePets = not GzLevelUpDB.includePets
         print(PREFIX .. L.INCLUDE_PETS_SET:format(tostring(GzLevelUpDB.includePets)))
-    elseif cmd == "petmsg" then
-        if rest ~= "" then
-            GzLevelUpDB.petMessage = rest
-            print(PREFIX .. L.PET_MESSAGE_SET:format(rest))
-        else
-            print(PREFIX .. L.PET_MESSAGE_CURRENT:format(GzLevelUpDB.petMessage))
-        end
     elseif cmd == "death" then
         GzLevelUpDB.announceDeaths = not GzLevelUpDB.announceDeaths
         print(PREFIX .. L.DEATH_SET:format(tostring(GzLevelUpDB.announceDeaths)))
@@ -2995,19 +3328,8 @@ SlashCmdList.GZLEVELUP = function(msg)
     elseif cmd == "selfrez" then
         GzLevelUpDB.announceSelfRez = not GzLevelUpDB.announceSelfRez
         print(PREFIX .. L.SELF_REZ_SET:format(tostring(GzLevelUpDB.announceSelfRez)))
-    elseif cmd == "deathmsg" or cmd == "selfdeathmsg" or cmd == "wipemsg"
-        or cmd == "rezmsg" or cmd == "selfrezmsg" then
-        local key = (cmd == "deathmsg" and "deathMessage")
-                 or (cmd == "selfdeathmsg" and "selfDeathMessage")
-                 or (cmd == "rezmsg" and "rezMessage")
-                 or (cmd == "selfrezmsg" and "selfRezMessage")
-                 or "wipeMessage"
-        if rest ~= "" then
-            GzLevelUpDB[key] = rest
-            print(PREFIX .. L.DEATH_MESSAGE_SET:format(cmd, rest))
-        else
-            print(PREFIX .. L.DEATH_MESSAGE_CURRENT:format(cmd, GzLevelUpDB[key]))
-        end
+    elseif MESSAGE_COMMAND[cmd] then
+        MessageCommand(cmd, rest)
     elseif cmd == "delay" then
         -- "/gz delay <sec>" sets them all; "/gz delay <category> <sec>" one.
         local who, value = rest:match("^(%S*)%s*(.*)$")
@@ -3094,6 +3416,7 @@ SlashCmdList.GZLEVELUP = function(msg)
             print(PREFIX .. L.SCALE_SET:format(math.floor(ClampScale(GzLevelUpDB.quickPanelScale) * 100 + 0.5)))
         end
     elseif cmd == "test" then
+        -- Every line of a list is shown, so all of them can be checked at once.
         local me    = UnitName("player")
         local level = (UnitLevel("player") or 1) + 1
         for _, kind in ipairs(CATEGORY_ORDER) do
@@ -3103,7 +3426,9 @@ SlashCmdList.GZLEVELUP = function(msg)
                 if kind == "pet" then
                     name, owner = UnitName("pet") or L.PET, me
                 end
-                print(PREFIX .. L.PREVIEW_PREFIX .. Format(GzLevelUpDB[cat.message], name, level, owner))
+                for _, line in ipairs(MessageLines(GzLevelUpDB[cat.message])) do
+                    print(PREFIX .. L.PREVIEW_PREFIX .. Format(line, name, level, owner))
+                end
             end
         end
         -- The death lines use two sample names, so {names}/{count} are visible.
@@ -3116,8 +3441,10 @@ SlashCmdList.GZLEVELUP = function(msg)
         }) do
             local cat, names = entry[1], entry[2]
             if GzLevelUpDB[cat.enabled] then
-                print(PREFIX .. L.PREVIEW_PREFIX
-                    .. Format(GzLevelUpDB[cat.message], names[1], UnitLevel("player"), nil, names))
+                for _, line in ipairs(MessageLines(GzLevelUpDB[cat.message])) do
+                    print(PREFIX .. L.PREVIEW_PREFIX
+                        .. Format(line, names[1], UnitLevel("player"), nil, names))
+                end
             end
         end
     else
@@ -3127,12 +3454,14 @@ SlashCmdList.GZLEVELUP = function(msg)
         print(L.HELP_MSG)
         print(L.HELP_SELFMSG)
         print(L.HELP_PETMSG)
+        print(L.HELP_MSG_ADD)
         print(L.HELP_DELAY)
         print(L.HELP_DELAY_ONE)
         print(L.HELP_PANEL)
         print(L.HELP_MINIMAP:format(tostring(GzLevelUpDB.minimapEnabled)))
         print(L.HELP_SCALE)
         print(L.HELP_REPLY:format(tostring(GzLevelUpDB.autoReplyEnabled)))
+        print(L.HELP_REPLYMSG)
         print(L.HELP_GUILD:format(tostring(GzLevelUpDB.guildReplyEnabled)))
         print(L.HELP_GUILDMSG)
         print(L.HELP_DEATH:format(tostring(GzLevelUpDB.announceDeaths)))

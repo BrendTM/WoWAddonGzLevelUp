@@ -21,6 +21,10 @@ Anniversary and World of Warcraft: Forever.
   - `{name}` — who levelled up
   - `{level}` — the new level
   - `{owner}` — the pet's owner (pet message only)
+- **Message lists** — every message can hold several variants, one per line,
+  edited in a window of their own. Each time one of them is sent, at random
+  (never the same twice in a row) or one after the other — your choice, per
+  message.
 - **Per-category delay** (0–60 seconds) so a message feels natural instead of
   instant. `0` sends immediately.
 - **Auto reply** (opt-in) — after *your own* level-up, wait for people to say
@@ -221,6 +225,7 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz pets` | Toggle announcing pets and companions |
 | `/gz raid` | Toggle using raid chat (off by default) |
 | `/gz reply` | Toggle the auto reply after your own level-up |
+| `/gz replymsg <text>` | Set the auto reply after your own level-up |
 | `/gz guild` | Toggle greeting back guild members who come online |
 | `/gz guildmsg <text>` | Set the reply to a guild member's greeting |
 | `/gz death` | Toggle announcing a group member's death |
@@ -233,6 +238,7 @@ so the link fields are there to be selected and copied with Ctrl+C.
 | `/gz selfrez` | Toggle announcing your own resurrection |
 | `/gz rezmsg <text>` | Set the message for a group member's resurrection |
 | `/gz selfrezmsg <text>` | Set the message for your own resurrection |
+| `/gz <…>msg add <text>` | Any of the message commands above with `add` puts the text into the list instead of replacing it; without text they list what is there |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
 | `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
 | `/gz profile` | List the settings profiles, marking the active one |

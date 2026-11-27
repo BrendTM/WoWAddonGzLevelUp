@@ -28,6 +28,10 @@ Lightweight, fully configurable, and built for **WoW Classic Era**,
 - **Pets and companions** (opt-in) — congratulate a hunter's or warlock's pet
   too, with its own message and an `{owner}` placeholder.
 - **Customizable messages** with placeholders `{name}` and `{level}`.
+- **Message lists** — every message can hold several variants, one per line,
+  edited in a window of their own. Each time one of them is sent, at random
+  (never the same twice in a row) or one after the other — your choice, per
+  message.
 - **Per-category delay** — each of the three announcement types has its own
   0–60 s pause before sending (`0` = immediately).
 - **Movable quick-button panel** (opt-in) — a floating panel whose buttons post
@@ -99,9 +103,13 @@ The config window (<code>/gz</code>) is split across six tabs:
     </td>
   </tr>
   <tr>
-    <td align="center" valign="top" colspan="2">
+    <td align="center" valign="top" width="50%">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
       <sub><b>Settings</b> — master switch, raid chat, minimap button, the settings profiles and the language</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_message_list_editor.jpg" width="380" alt="Message list editor"><br>
+      <sub><b>Edit...</b> next to any message — several variants, one per line, sent at random or in order</sub>
     </td>
   </tr>
 </table>
@@ -160,6 +168,7 @@ box with sensible defaults.
 | `/gz group` | Toggle announcing group members |
 | `/gz raid` | Toggle using raid chat (off by default) |
 | `/gz reply` | Toggle the auto reply after your own level-up |
+| `/gz replymsg <text>` | Set the auto reply after your own level-up |
 | `/gz guild` | Toggle greeting back guild members who come online |
 | `/gz guildmsg <text>` | Set the reply to a guild member's greeting |
 | `/gz pets` | Toggle announcing pets and companions |
@@ -173,6 +182,7 @@ box with sensible defaults.
 | `/gz selfrez` | Toggle announcing your own resurrection |
 | `/gz rezmsg <text>` | Set the message for a group member's resurrection |
 | `/gz selfrezmsg <text>` | Set the message for your own resurrection |
+| `/gz <…>msg add <text>` | Any of the message commands above with `add` puts the text into the list instead of replacing it; without text they list what is there |
 | `/gz delay <sec>` | Set the delay for every category (`0` = immediately) |
 | `/gz delay <group\|self\|pets\|death\|selfdeath\|wipe\|rez\|selfrez> <sec>` | Set the delay for one category |
 | `/gz profile` | List the settings profiles, marking the active one |
