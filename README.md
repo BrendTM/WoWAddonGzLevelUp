@@ -103,9 +103,13 @@ The config window (<code>/gz</code>) is split across six tabs:
     </td>
   </tr>
   <tr>
-    <td align="center" valign="top" colspan="2">
+    <td align="center" valign="top" width="50%">
       <img src="media/example_settings_panel.jpg" width="380" alt="Settings tab"><br>
       <sub><b>Settings</b> — master switch, raid chat, minimap button, the settings profiles and the language</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <img src="media/example_message_list_editor.jpg" width="380" alt="Message list editor"><br>
+      <sub><b>Edit...</b> next to any message — several variants, one per line, sent at random or in order</sub>
     </td>
   </tr>
 </table>
